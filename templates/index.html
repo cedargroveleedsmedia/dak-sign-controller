@@ -1,0 +1,1093 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DAK Sign Controller</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@300;400;600;700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:        #0a0c0e;
+    --surface:   #111418;
+    --border:    #1e2530;
+    --border2:   #2a3340;
+    --orange:    #ff6b1a;
+    --orange-dim:#7a3208;
+    --amber:     #ffaa00;
+    --green:     #00e676;
+    --red:       #ff3d3d;
+    --text:      #c8d4e0;
+    --text-dim:  #506070;
+    --mono:      'Share Tech Mono', monospace;
+    --head:      'Barlow Condensed', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* scanline overlay */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.08) 2px,
+      rgba(0,0,0,0.08) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* ─── Header ─── */
+  header {
+    background: var(--surface);
+    border-bottom: 2px solid var(--orange);
+    padding: 0 28px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky; top: 0; z-index: 100;
+  }
+  .logo {
+    font-family: var(--head);
+    font-weight: 900;
+    font-size: 22px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #fff;
+  }
+  .logo span { color: var(--orange); }
+  .header-right { display: flex; align-items: center; gap: 20px; }
+  .sign-badge {
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.06em;
+  }
+  .sign-badge strong { color: var(--amber); }
+
+  #conn-dot {
+    width: 9px; height: 9px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    display: inline-block;
+    margin-right: 6px;
+    transition: background 0.3s;
+  }
+  #conn-dot.online  { background: var(--green); box-shadow: 0 0 8px var(--green); }
+  #conn-dot.offline { background: var(--red);   box-shadow: 0 0 8px var(--red); }
+
+  /* ─── Layout ─── */
+  .layout {
+    display: grid;
+    grid-template-columns: 220px 1fr 280px;
+    gap: 0;
+    height: calc(100vh - 56px);
+  }
+
+  /* ─── Sidebar ─── */
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 20px 0;
+    overflow-y: auto;
+  }
+  .nav-section {
+    padding: 8px 20px 4px;
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 20px;
+    cursor: pointer;
+    color: var(--text-dim);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    border-left: 3px solid transparent;
+    transition: all 0.15s;
+    user-select: none;
+  }
+  .nav-item:hover { background: rgba(255,107,26,0.06); color: var(--text); }
+  .nav-item.active {
+    background: rgba(255,107,26,0.1);
+    color: var(--orange);
+    border-left-color: var(--orange);
+  }
+  .nav-item svg { flex-shrink: 0; opacity: 0.7; }
+  .nav-item.active svg { opacity: 1; }
+
+  /* ─── Main ─── */
+  main {
+    overflow-y: auto;
+    padding: 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  /* ─── Right panel ─── */
+  .right-panel {
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ─── Panels ─── */
+  .panel {
+    display: none;
+    flex-direction: column;
+    gap: 20px;
+  }
+  .panel.active { display: flex; }
+
+  /* ─── Cards ─── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+  }
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(0,0,0,0.2);
+  }
+  .card-title {
+    font-family: var(--head);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #fff;
+  }
+  .card-body { padding: 16px; }
+
+  /* ─── Stat grid ─── */
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 12px;
+  }
+  .stat {
+    background: rgba(0,0,0,0.3);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 14px 16px;
+  }
+  .stat-label {
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+  }
+  .stat-value {
+    font-family: var(--head);
+    font-weight: 700;
+    font-size: 20px;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .stat-value.ok    { color: var(--green); }
+  .stat-value.warn  { color: var(--amber); }
+  .stat-value.error { color: var(--red); }
+
+  /* ─── JSON viewer ─── */
+  .json-block {
+    background: #060809;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 14px;
+    font-size: 11px;
+    line-height: 1.7;
+    overflow-x: auto;
+    white-space: pre;
+    color: #7ec8e3;
+    max-height: 340px;
+    overflow-y: auto;
+  }
+  .json-key    { color: var(--amber); }
+  .json-string { color: #a8d8a8; }
+  .json-number { color: #f9a87a; }
+  .json-bool   { color: #c792ea; }
+  .json-null   { color: var(--text-dim); }
+
+  /* ─── Buttons ─── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 16px;
+    border: 1px solid var(--border2);
+    border-radius: 2px;
+    background: transparent;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .btn:hover   { border-color: var(--orange); color: var(--orange); background: rgba(255,107,26,0.06); }
+  .btn:active  { background: rgba(255,107,26,0.15); }
+  .btn.primary { background: var(--orange); border-color: var(--orange); color: #000; font-weight: 600; }
+  .btn.primary:hover { background: #ff8c45; border-color: #ff8c45; color: #000; }
+  .btn.danger  { border-color: var(--red); color: var(--red); }
+  .btn.danger:hover { background: rgba(255,61,61,0.1); }
+  .btn.sm { padding: 5px 10px; font-size: 10px; }
+  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  /* ─── Form controls ─── */
+  label {
+    display: block;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 5px;
+  }
+  input[type=text], input[type=password], input[type=number], textarea, select {
+    width: 100%;
+    background: #060809;
+    border: 1px solid var(--border2);
+    border-radius: 2px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 8px 10px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  input:focus, textarea:focus, select:focus { border-color: var(--orange); }
+  textarea { resize: vertical; min-height: 80px; }
+  select option { background: var(--surface); }
+
+  .form-row { margin-bottom: 14px; }
+  .form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  /* ─── Slider ─── */
+  .slider-wrap { position: relative; padding: 10px 0; }
+  input[type=range] {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 4px;
+    background: var(--border2);
+    border-radius: 2px;
+    outline: none;
+    padding: 0;
+    border: none;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    background: var(--orange);
+    cursor: pointer;
+    box-shadow: 0 0 8px var(--orange-dim);
+  }
+  .slider-val {
+    font-family: var(--head);
+    font-weight: 700;
+    font-size: 32px;
+    color: var(--orange);
+    text-align: center;
+    margin-bottom: 6px;
+  }
+
+  /* ─── Messages list ─── */
+  .msg-list { display: flex; flex-direction: column; gap: 8px; }
+  .msg-item {
+    background: rgba(0,0,0,0.3);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 12px 14px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    transition: border-color 0.15s;
+    cursor: default;
+  }
+  .msg-item:hover { border-color: var(--border2); }
+  .msg-item-name {
+    font-family: var(--head);
+    font-weight: 600;
+    font-size: 14px;
+    color: #fff;
+    margin-bottom: 4px;
+  }
+  .msg-item-meta { font-size: 10px; color: var(--text-dim); }
+  .msg-badge {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 1px;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    background: var(--orange-dim);
+    color: var(--amber);
+    margin-right: 6px;
+  }
+
+  /* ─── Log panel ─── */
+  .log-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    font-family: var(--head);
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  #log {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+    font-size: 11px;
+    line-height: 1.8;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .log-entry { display: flex; gap: 8px; align-items: flex-start; }
+  .log-ts    { color: var(--text-dim); flex-shrink: 0; font-size: 10px; }
+  .log-ok    { color: var(--green); }
+  .log-err   { color: var(--red); }
+  .log-info  { color: var(--amber); }
+
+  /* ─── Tabs ─── */
+  .tabs { display: flex; border-bottom: 1px solid var(--border); }
+  .tab {
+    padding: 10px 16px;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    color: var(--text-dim);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: all 0.15s;
+  }
+  .tab:hover  { color: var(--text); }
+  .tab.active { color: var(--orange); border-bottom-color: var(--orange); }
+  .tab-content { display: none; padding: 16px; }
+  .tab-content.active { display: block; }
+
+  /* ─── Time display ─── */
+  .time-block {
+    text-align: center;
+    padding: 20px;
+  }
+  .time-big {
+    font-family: var(--head);
+    font-weight: 900;
+    font-size: 52px;
+    letter-spacing: 0.04em;
+    color: var(--orange);
+    line-height: 1;
+    text-shadow: 0 0 30px rgba(255,107,26,0.4);
+  }
+  .date-small {
+    font-size: 12px;
+    color: var(--text-dim);
+    letter-spacing: 0.12em;
+    margin-top: 6px;
+  }
+
+  /* ─── Tag ─── */
+  .tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 1px;
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    border: 1px solid;
+  }
+  .tag-green  { color: var(--green); border-color: var(--green); }
+  .tag-red    { color: var(--red);   border-color: var(--red); }
+  .tag-amber  { color: var(--amber); border-color: var(--amber); }
+  .tag-orange { color: var(--orange); border-color: var(--orange); }
+
+  /* spinner */
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spinner {
+    display: inline-block;
+    width: 12px; height: 12px;
+    border: 2px solid var(--border2);
+    border-top-color: var(--orange);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+
+  /* flash */
+  @keyframes flash-in {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .log-entry { animation: flash-in 0.2s ease; }
+
+  /* ─── Scrollbar ─── */
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #3a4550; }
+
+  /* empty state */
+  .empty { color: var(--text-dim); font-size: 12px; text-align: center; padding: 24px; }
+
+  hr.divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 16px 0;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">DAK <span>//</span> Sign Controller</div>
+  <div class="header-right">
+    <span class="sign-badge">
+      <span id="conn-dot"></span>
+      <strong id="conn-label">—</strong>
+      &nbsp;|&nbsp; {{ sign_ip }}
+    </span>
+    <button class="btn sm" onclick="navigate('settings')">⚙ Settings</button>
+  </div>
+</header>
+
+<div class="layout">
+
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <div class="nav-section">Monitor</div>
+    <div class="nav-item active" onclick="navigate('dashboard')">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+      Dashboard
+    </div>
+    <div class="nav-item" onclick="navigate('status')">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      Status
+    </div>
+    <div class="nav-section">Control</div>
+    <div class="nav-item" onclick="navigate('messages')">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      Messages
+    </div>
+    <div class="nav-item" onclick="navigate('brightness')">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+      Brightness
+    </div>
+    <div class="nav-item" onclick="navigate('datetime')">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      Date / Time
+    </div>
+    <div class="nav-section">Advanced</div>
+    <div class="nav-item" onclick="navigate('raw')">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+      Raw API
+    </div>
+    <div class="nav-item" onclick="navigate('settings')">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      Settings
+    </div>
+  </nav>
+
+  <!-- Main content -->
+  <main>
+
+    <!-- DASHBOARD -->
+    <div id="panel-dashboard" class="panel active">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">System Overview</span>
+          <button class="btn sm" onclick="loadDashboard()"><span id="dash-spin"></span> Refresh</button>
+        </div>
+        <div class="card-body">
+          <div class="stat-grid" id="stat-grid">
+            <div class="stat"><div class="stat-label">Connection</div><div class="stat-value" id="s-conn">—</div></div>
+            <div class="stat"><div class="stat-label">Temperature</div><div class="stat-value" id="s-temp">—</div></div>
+            <div class="stat"><div class="stat-label">Brightness</div><div class="stat-value" id="s-bright">—</div></div>
+            <div class="stat"><div class="stat-label">Messages</div><div class="stat-value" id="s-msgs">—</div></div>
+            <div class="stat"><div class="stat-label">Fan Status</div><div class="stat-value" id="s-fan">—</div></div>
+            <div class="stat"><div class="stat-label">Sign Health</div><div class="stat-value" id="s-health">—</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><span class="card-title">Quick Actions</span></div>
+        <div class="card-body">
+          <div class="btn-row">
+            <button class="btn primary" onclick="syncTime()">⏱ Sync Clock</button>
+            <button class="btn" onclick="navigate('messages'); loadMessages()">📋 View Messages</button>
+            <button class="btn" onclick="navigate('brightness'); loadDimming()">☀ Brightness</button>
+            <button class="btn" onclick="loadStatus()">↺ Reload Status</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- STATUS -->
+    <div id="panel-status" class="panel">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Device Status</span>
+          <button class="btn sm" onclick="loadStatus()">Refresh</button>
+        </div>
+        <div class="card-body">
+          <div id="status-out" class="json-block">// click Refresh to load</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Configuration</span>
+          <button class="btn sm" onclick="loadConfig()">Refresh</button>
+        </div>
+        <div class="card-body">
+          <div id="config-out" class="json-block">// click Refresh to load</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MESSAGES -->
+    <div id="panel-messages" class="panel">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Message List</span>
+          <button class="btn sm" onclick="loadMessages()">Refresh</button>
+        </div>
+        <div class="card-body">
+          <div id="msg-list-out" class="msg-list">
+            <div class="empty">No messages loaded yet</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><span class="card-title">New Message</span></div>
+        <div class="card-body">
+          <div class="tabs">
+            <div class="tab active" onclick="switchTab(this,'msg-simple')">Simple</div>
+            <div class="tab" onclick="switchTab(this,'msg-raw')">Raw POST</div>
+          </div>
+          <div class="tab-content active" id="msg-simple">
+            <div class="form-row"><label>Message Name</label><input type="text" id="msg-name" placeholder="e.g. Welcome"></div>
+            <div class="form-row"><label>Message Text</label><textarea id="msg-text" placeholder="Text to display on sign..."></textarea></div>
+            <div class="form-grid">
+              <div class="form-row"><label>Priority</label>
+                <select id="msg-priority">
+                  <option value="1">1 – Low</option>
+                  <option value="5" selected>5 – Normal</option>
+                  <option value="9">9 – High</option>
+                </select>
+              </div>
+              <div class="form-row"><label>Duration (sec)</label><input type="number" id="msg-duration" value="10" min="1"></div>
+            </div>
+            <button class="btn primary" onclick="saveMessage()">Save Message</button>
+          </div>
+          <div class="tab-content" id="msg-raw">
+            <div class="form-row"><label>Raw POST body (form-encoded key=value pairs)</label>
+              <textarea id="raw-post-body" placeholder="name=Welcome&text=Hello+World&priority=5&duration=10" style="min-height:120px;"></textarea>
+            </div>
+            <button class="btn primary" onclick="saveRawMessage()">POST to savemessage.php</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- BRIGHTNESS -->
+    <div id="panel-brightness" class="panel">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Brightness Control</span>
+          <button class="btn sm" onclick="loadDimming()">Read Current</button>
+        </div>
+        <div class="card-body">
+          <div id="dimming-out" class="json-block" style="margin-bottom:20px;">// click Read Current to load</div>
+          <div class="slider-val"><span id="bright-val">75</span>%</div>
+          <div class="slider-wrap">
+            <input type="range" min="0" max="100" value="75" id="bright-slider"
+              oninput="document.getElementById('bright-val').textContent=this.value">
+          </div>
+          <br>
+          <div class="btn-row">
+            <button class="btn primary" onclick="setBrightness()">Set Brightness</button>
+            <button class="btn" onclick="document.getElementById('bright-slider').value=100;document.getElementById('bright-val').textContent=100">Max</button>
+            <button class="btn" onclick="document.getElementById('bright-slider').value=50;document.getElementById('bright-val').textContent=50">50%</button>
+            <button class="btn" onclick="document.getElementById('bright-slider').value=25;document.getElementById('bright-val').textContent=25">25%</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- DATETIME -->
+    <div id="panel-datetime" class="panel">
+      <div class="card">
+        <div class="card-header"><span class="card-title">Date / Time Sync</span></div>
+        <div class="card-body">
+          <div class="time-block">
+            <div class="time-big" id="local-time">--:--:--</div>
+            <div class="date-small" id="local-date">Loading...</div>
+          </div>
+          <hr class="divider">
+          <p style="font-size:11px;color:var(--text-dim);margin-bottom:16px;line-height:1.7;">
+            Sends the current UTC time to the sign via
+            <code style="color:var(--amber);">PUT /daktronics/syscontrol/1.0/datetime?Time=...</code>
+          </p>
+          <div class="btn-row">
+            <button class="btn primary" onclick="syncTime()">⏱ Sync Now</button>
+          </div>
+          <div id="sync-result" style="margin-top:14px;font-size:11px;color:var(--text-dim);"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RAW API -->
+    <div id="panel-raw" class="panel">
+      <div class="card">
+        <div class="card-header"><span class="card-title">Raw API Console</span></div>
+        <div class="card-body">
+          <div class="form-row">
+            <label>Method</label>
+            <select id="raw-method">
+              <option>GET</option>
+              <option>POST</option>
+              <option>PUT</option>
+              <option>DELETE</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label>Endpoint Path (e.g. /daktronics/syscontrol/1.0/status)</label>
+            <input type="text" id="raw-path" value="/daktronics/syscontrol/1.0/status">
+          </div>
+          <div class="form-row">
+            <label>Body (JSON or form data)</label>
+            <textarea id="raw-body" placeholder='{"key":"value"}'></textarea>
+          </div>
+          <button class="btn primary" onclick="sendRaw()">Send Request</button>
+          <hr class="divider">
+          <label>Response</label>
+          <div id="raw-out" class="json-block" style="min-height:160px;">// response will appear here</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><span class="card-title">Quick Endpoints</span></div>
+        <div class="card-body">
+          <div class="btn-row">
+            <button class="btn sm" onclick="quickGet('/daktronics/syscontrol/1.0/status')">Status</button>
+            <button class="btn sm" onclick="quickGet('/daktronics/syscontrol/1.0/configuration')">Config</button>
+            <button class="btn sm" onclick="quickGet('/daktronics/syscontrol/1.0/configuration/output/0/dimming')">Dimming</button>
+            <button class="btn sm" onclick="quickGet('/ECCB/getmessagelist.php')">Messages</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SETTINGS -->
+    <div id="panel-settings" class="panel">
+      <div class="card">
+        <div class="card-header"><span class="card-title">Connection Settings</span></div>
+        <div class="card-body">
+          <div class="form-row"><label>Sign IP Address</label><input type="text" id="cfg-ip" placeholder="192.168.1.51"></div>
+          <div class="form-grid">
+            <div class="form-row"><label>Username</label><input type="text" id="cfg-user" placeholder="Dak"></div>
+            <div class="form-row"><label>Password</label><input type="password" id="cfg-pass" placeholder="DakPassword"></div>
+          </div>
+          <div class="btn-row">
+            <button class="btn primary" onclick="saveSettings()">Save &amp; Apply</button>
+            <button class="btn" onclick="testConnection()">Test Connection</button>
+          </div>
+          <div id="cfg-result" style="margin-top:12px;font-size:11px;color:var(--text-dim);"></div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Right log panel -->
+  <div class="right-panel">
+    <div class="log-header">
+      Activity Log
+      <button class="btn sm" onclick="clearLog()">Clear</button>
+    </div>
+    <div id="log"></div>
+  </div>
+
+</div>
+
+<script>
+// ─── State ─────────────────────────────────────────────────────
+let currentPanel = 'dashboard';
+
+// ─── Navigation ────────────────────────────────────────────────
+function navigate(panel) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('panel-' + panel).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n => {
+    if (n.getAttribute('onclick') && n.getAttribute('onclick').includes("'" + panel + "'"))
+      n.classList.add('active');
+  });
+  currentPanel = panel;
+}
+
+// ─── Tab switching ──────────────────────────────────────────────
+function switchTab(el, id) {
+  const card = el.closest('.card-body');
+  card.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  card.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById(id).classList.add('active');
+}
+
+// ─── Log ────────────────────────────────────────────────────────
+function log(msg, type='info') {
+  const el = document.getElementById('log');
+  const ts = new Date().toLocaleTimeString('en-US', {hour12:false});
+  const entry = document.createElement('div');
+  entry.className = 'log-entry';
+  entry.innerHTML = `<span class="log-ts">${ts}</span><span class="log-${type}">${msg}</span>`;
+  el.appendChild(entry);
+  el.scrollTop = el.scrollHeight;
+  if (el.children.length > 200) el.removeChild(el.firstChild);
+}
+function clearLog() { document.getElementById('log').innerHTML = ''; }
+
+// ─── Connection indicator ───────────────────────────────────────
+function setConn(online) {
+  const dot = document.getElementById('conn-dot');
+  const lbl = document.getElementById('conn-label');
+  dot.className = online ? 'online' : 'offline';
+  lbl.textContent = online ? 'ONLINE' : 'OFFLINE';
+}
+
+// ─── JSON syntax highlight ──────────────────────────────────────
+function highlight(obj) {
+  let json = typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2);
+  return json
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, m => {
+      if (/^"/.test(m)) return /:$/.test(m) ? `<span class="json-key">${m}</span>` : `<span class="json-string">${m}</span>`;
+      if (/true|false/.test(m)) return `<span class="json-bool">${m}</span>`;
+      if (/null/.test(m))       return `<span class="json-null">${m}</span>`;
+      return `<span class="json-number">${m}</span>`;
+    });
+}
+
+// ─── API helper ─────────────────────────────────────────────────
+async function api(url, options={}) {
+  try {
+    const r = await fetch(url, { headers: {'Content-Type':'application/json'}, ...options });
+    const data = await r.json().catch(() => r.text());
+    return { ok: r.ok, status: r.status, data };
+  } catch(e) {
+    return { ok: false, status: 0, data: { error: e.message } };
+  }
+}
+
+// ─── Dashboard ──────────────────────────────────────────────────
+async function loadDashboard() {
+  document.getElementById('dash-spin').innerHTML = '<span class="spinner"></span> ';
+  log('Loading dashboard...');
+  const [sr, mr] = await Promise.all([api('/api/status'), api('/api/messages')]);
+  document.getElementById('dash-spin').innerHTML = '';
+
+  if (!sr.ok) {
+    setConn(false);
+    document.getElementById('s-conn').textContent = 'OFFLINE';
+    document.getElementById('s-conn').className = 'stat-value error';
+    log('Sign unreachable', 'err');
+    return;
+  }
+  setConn(true);
+  log('Dashboard loaded', 'ok');
+
+  const d = sr.data;
+  document.getElementById('s-conn').textContent  = 'ONLINE';
+  document.getElementById('s-conn').className    = 'stat-value ok';
+
+  // Try to extract common fields — structure varies by firmware
+  const temp   = findDeep(d, ['temperature','temp','Temperature']) || '—';
+  const bright = findDeep(d, ['brightness','dimLevel','level','Brightness']) || '—';
+  const fan    = findDeep(d, ['fan','fanStatus','Fan']) || '—';
+  const health = findDeep(d, ['health','status','Status','systemStatus']) || 'OK';
+
+  document.getElementById('s-temp').textContent   = temp !== '—' ? temp + '°C' : '—';
+  document.getElementById('s-bright').textContent = bright !== '—' ? bright + '%' : '—';
+  document.getElementById('s-fan').textContent    = String(fan).toUpperCase();
+  document.getElementById('s-health').textContent = String(health).toUpperCase();
+  document.getElementById('s-health').className   = 'stat-value ' + (String(health).toLowerCase().includes('ok') ? 'ok' : 'warn');
+
+  if (mr.ok) {
+    const msgs = Array.isArray(mr.data) ? mr.data : (mr.data.messages || mr.data.messageList || []);
+    document.getElementById('s-msgs').textContent = msgs.length;
+  }
+}
+
+function findDeep(obj, keys) {
+  if (!obj || typeof obj !== 'object') return null;
+  for (const k of keys) {
+    if (obj[k] !== undefined) return obj[k];
+  }
+  for (const v of Object.values(obj)) {
+    if (typeof v === 'object') {
+      const r = findDeep(v, keys);
+      if (r !== null) return r;
+    }
+  }
+  return null;
+}
+
+// ─── Status ─────────────────────────────────────────────────────
+async function loadStatus() {
+  log('Fetching status...');
+  const r = await api('/api/status');
+  document.getElementById('status-out').innerHTML = highlight(r.data);
+  if (r.ok) { setConn(true); log('Status loaded', 'ok'); }
+  else       { setConn(false); log('Status fetch failed', 'err'); }
+}
+
+async function loadConfig() {
+  log('Fetching configuration...');
+  const r = await api('/api/configuration');
+  document.getElementById('config-out').innerHTML = highlight(r.data);
+  if (r.ok) log('Config loaded', 'ok');
+  else      log('Config fetch failed', 'err');
+}
+
+// ─── Messages ───────────────────────────────────────────────────
+async function loadMessages() {
+  log('Fetching messages...');
+  const r = await api('/api/messages');
+  const el = document.getElementById('msg-list-out');
+
+  if (!r.ok) { el.innerHTML = `<div class="empty" style="color:var(--red)">Error: ${r.data.error || 'Failed'}</div>`; log('Message fetch failed','err'); return; }
+  log('Messages loaded', 'ok');
+
+  const msgs = Array.isArray(r.data) ? r.data : (r.data.messages || r.data.messageList || r.data.MessageList || []);
+  if (!msgs.length) {
+    el.innerHTML = `<div class="empty">No messages found on sign<br><span style="font-size:10px;opacity:0.5">Raw: ${JSON.stringify(r.data).substring(0,120)}</span></div>`;
+    return;
+  }
+
+  el.innerHTML = msgs.map((m, i) => {
+    const name = m.name || m.Name || m.title || m.Title || `Message ${i+1}`;
+    const id   = m.id || m.Id || m.messageId || i;
+    const prio = m.priority || m.Priority || '—';
+    const dur  = m.duration || m.Duration || '—';
+    return `
+    <div class="msg-item">
+      <div>
+        <div class="msg-item-name">${name}</div>
+        <div class="msg-item-meta">
+          <span class="msg-badge">ID ${id}</span>
+          Priority: ${prio} &nbsp;|&nbsp; Duration: ${dur}s
+        </div>
+      </div>
+      <button class="btn sm danger" onclick="deleteMessage('${id}', '${name}')">✕</button>
+    </div>`;
+  }).join('');
+}
+
+async function saveMessage() {
+  const body = {
+    name:     document.getElementById('msg-name').value,
+    text:     document.getElementById('msg-text').value,
+    priority: document.getElementById('msg-priority').value,
+    duration: document.getElementById('msg-duration').value,
+  };
+  if (!body.name || !body.text) { log('Name and text required', 'err'); return; }
+  log(`Saving message: ${body.name}...`);
+  const r = await api('/api/messages/save', { method:'POST', body: JSON.stringify(body) });
+  if (r.ok) { log(`Message saved (${r.status})`, 'ok'); loadMessages(); }
+  else       log(`Save failed: ${JSON.stringify(r.data)}`, 'err');
+}
+
+async function saveRawMessage() {
+  const raw = document.getElementById('raw-post-body').value;
+  log('Sending raw POST to savemessage.php...');
+  const r = await fetch('/api/messages/save', {
+    method: 'POST',
+    headers: { 'Content-Type':'application/json' },
+    body: JSON.stringify(Object.fromEntries(new URLSearchParams(raw)))
+  });
+  const data = await r.json().catch(() => ({}));
+  log(`Result: ${JSON.stringify(data)}`, r.ok ? 'ok' : 'err');
+}
+
+async function deleteMessage(id, name) {
+  if (!confirm(`Delete message "${name}"?`)) return;
+  log(`Deleting message ${id}...`);
+  const r = await api('/api/messages/delete', { method:'POST', body: JSON.stringify({id}) });
+  if (r.ok) { log(`Deleted (${r.status})`, 'ok'); loadMessages(); }
+  else       log(`Delete failed`, 'err');
+}
+
+// ─── Dimming ────────────────────────────────────────────────────
+async function loadDimming() {
+  log('Fetching dimming config...');
+  const r = await api('/api/dimming');
+  document.getElementById('dimming-out').innerHTML = highlight(r.data);
+  if (r.ok) {
+    log('Dimming config loaded', 'ok');
+    const lvl = findDeep(r.data, ['level','brightness','dimLevel','value','Level']);
+    if (lvl !== null) {
+      document.getElementById('bright-slider').value = lvl;
+      document.getElementById('bright-val').textContent = lvl;
+    }
+  } else log('Dimming fetch failed', 'err');
+}
+
+async function setBrightness() {
+  const level = parseInt(document.getElementById('bright-slider').value);
+  log(`Setting brightness to ${level}%...`);
+  const r = await api('/api/brightness', { method:'POST', body: JSON.stringify({level}) });
+  if (r.ok) log(`Brightness set to ${level}% (${r.status})`, 'ok');
+  else      log(`Brightness set failed: ${JSON.stringify(r.data)}`, 'err');
+}
+
+// ─── Datetime ───────────────────────────────────────────────────
+function updateClock() {
+  const now = new Date();
+  document.getElementById('local-time').textContent = now.toLocaleTimeString('en-US', {hour12:false});
+  document.getElementById('local-date').textContent = now.toLocaleDateString('en-US', {weekday:'long', year:'numeric', month:'long', day:'numeric'});
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+async function syncTime() {
+  log('Syncing time to sign...');
+  const r = await api('/api/sync-time', { method:'POST' });
+  const el = document.getElementById('sync-result');
+  if (r.ok) {
+    log(`Time synced: ${r.data.time_sent}`, 'ok');
+    el.innerHTML = `<span style="color:var(--green)">✓ Synced at ${r.data.time_sent}</span>`;
+  } else {
+    log('Time sync failed', 'err');
+    el.innerHTML = `<span style="color:var(--red)">✗ Failed: ${JSON.stringify(r.data)}</span>`;
+  }
+}
+
+// ─── Raw API ────────────────────────────────────────────────────
+function quickGet(path) {
+  document.getElementById('raw-method').value = 'GET';
+  document.getElementById('raw-path').value = path;
+  sendRaw();
+}
+
+async function sendRaw() {
+  const method = document.getElementById('raw-method').value;
+  const path   = document.getElementById('raw-path').value;
+  const body   = document.getElementById('raw-body').value;
+  log(`${method} ${path}...`);
+
+  const opts = { method };
+  if (body && method !== 'GET') {
+    opts.headers = { 'Content-Type':'application/json' };
+    try { opts.body = JSON.stringify(JSON.parse(body)); } catch { opts.body = body; }
+  }
+
+  try {
+    const r = await fetch(`/api/raw?path=${encodeURIComponent(path)}&method=${method}`, {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify({ path, method, body })
+    });
+    // Fallback: use existing endpoints for known paths
+    const known = {
+      '/daktronics/syscontrol/1.0/status':       '/api/status',
+      '/daktronics/syscontrol/1.0/configuration': '/api/configuration',
+      '/daktronics/syscontrol/1.0/configuration/output/0/dimming': '/api/dimming',
+      '/ECCB/getmessagelist.php': '/api/messages',
+    };
+    const localPath = known[path];
+    if (localPath) {
+      const lr = await api(localPath);
+      document.getElementById('raw-out').innerHTML = highlight(lr.data);
+      log(`Response: ${lr.status}`, lr.ok ? 'ok' : 'err');
+      return;
+    }
+    const data = await r.json().catch(() => r.text());
+    document.getElementById('raw-out').innerHTML = highlight(data);
+    log(`Response: ${r.status}`, r.ok ? 'ok' : 'err');
+  } catch(e) {
+    document.getElementById('raw-out').innerHTML = `<span style="color:var(--red)">${e.message}</span>`;
+    log(`Error: ${e.message}`, 'err');
+  }
+}
+
+// ─── Settings ───────────────────────────────────────────────────
+async function loadSettings() {
+  const r = await api('/api/settings');
+  if (r.ok) {
+    document.getElementById('cfg-ip').value   = r.data.ip;
+    document.getElementById('cfg-user').value = r.data.username;
+    document.getElementById('cfg-pass').value = r.data.password;
+  }
+}
+
+async function saveSettings() {
+  const body = {
+    ip:       document.getElementById('cfg-ip').value,
+    username: document.getElementById('cfg-user').value,
+    password: document.getElementById('cfg-pass').value,
+  };
+  const r = await api('/api/settings', { method:'POST', body: JSON.stringify(body) });
+  const el = document.getElementById('cfg-result');
+  if (r.ok) {
+    log(`Settings saved — ${body.ip}`, 'ok');
+    el.innerHTML = `<span style="color:var(--green)">✓ Saved. New target: ${body.ip}</span>`;
+  } else {
+    log('Settings save failed', 'err');
+    el.innerHTML = `<span style="color:var(--red)">✗ Failed</span>`;
+  }
+}
+
+async function testConnection() {
+  log('Testing connection...');
+  const r = await api('/api/status');
+  const el = document.getElementById('cfg-result');
+  if (r.ok) { setConn(true); el.innerHTML = `<span style="color:var(--green)">✓ Sign is reachable</span>`; log('Connection OK', 'ok'); }
+  else       { setConn(false); el.innerHTML = `<span style="color:var(--red)">✗ Cannot reach sign</span>`; log('Connection failed', 'err'); }
+}
+
+// ─── Init ───────────────────────────────────────────────────────
+(async function init() {
+  log('DAK Sign Controller ready', 'info');
+  await loadSettings();
+  loadDashboard();
+})();
+</script>
+</body>
+</html>
