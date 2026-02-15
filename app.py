@@ -158,23 +158,31 @@ def save_message_obj(msg_obj):
 
 
 def delete_message_by_name(name):
-    """Delete using form POST. Retries once after re-login on failure."""
-    for attempt in range(2):
-        s = get_session()
-        r = s.post(
-            f"{BASE_URL}/ECCB/deletemessage.php",
-            data={"Name": name},
-            headers={
-                "X-Requested-With": "XMLHttpRequest",
-                "Referer": f"{BASE_URL}/ECCB/EditMessage.html",
-            },
-            timeout=60,
-        )
-        app.logger.info(f"deletemessage attempt {attempt+1} '{name}' -> {r.status_code}: {r.content[:200]}")
-        if r.status_code in (200, 404):
-            return r.text, r.status_code
-        invalidate_session()
-    return r.text, r.status_code
+    """Delete via GET with query param — nginx on the sign only allows GET on this endpoint."""
+    s = get_session()
+    headers = {
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": f"{BASE_URL}/ECCB/EditMessage.html",
+    }
+    # Try GET first (most likely based on 405 response to POST)
+    r = s.get(
+        f"{BASE_URL}/ECCB/deletemessage.php",
+        params={"Name": name},
+        headers=headers,
+        timeout=60,
+    )
+    app.logger.info(f"deletemessage GET '{name}' -> {r.status_code}: {r.content[:200]}")
+    if r.status_code in (200, 404):
+        return r.text, r.status_code
+    # Fallback: POST just in case
+    r2 = s.post(
+        f"{BASE_URL}/ECCB/deletemessage.php",
+        data={"Name": name},
+        headers=headers,
+        timeout=60,
+    )
+    app.logger.info(f"deletemessage POST fallback '{name}' -> {r2.status_code}: {r2.content[:200]}")
+    return r2.text, r2.status_code
 
 
 # ─── Routes ────────────────────────────────────────────────────────────────────
@@ -356,10 +364,14 @@ def api_probe_save():
         results.append({"format": "raw_json", "status": r.status_code,
                         "body": strip_bom(r.content) or "(empty-BOM-only)"})
 
-        r2 = s.post(f"{BASE_URL}/ECCB/deletemessage.php",
-                    data={"Name": name}, headers=headers, timeout=60)
-        results.append({"format": "delete_Name", "status": r2.status_code,
+        r2 = s.get(f"{BASE_URL}/ECCB/deletemessage.php",
+                   params={"Name": name}, headers=headers, timeout=60)
+        results.append({"format": "delete_GET_Name", "status": r2.status_code,
                         "body": strip_bom(r2.content) or "(empty-BOM-only)"})
+        r3 = s.post(f"{BASE_URL}/ECCB/deletemessage.php",
+                    data={"Name": name}, headers=headers, timeout=60)
+        results.append({"format": "delete_POST_Name", "status": r3.status_code,
+                        "body": strip_bom(r3.content) or "(empty-BOM-only)"})
 
         msgs_after = get_messages()
         return jsonify({
