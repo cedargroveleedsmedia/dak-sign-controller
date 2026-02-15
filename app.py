@@ -59,31 +59,48 @@ def get_messages():
     data = json.loads(raw)
     return data.get("Messages") or data.get("messages") or []
 
+# Headers the native ECCB web UI sends
+def _eccb_headers(host):
+    return {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": f"http://{host}/ECCB/EditMessage.html",
+        "Origin": f"http://{host}",
+    }
+
+def _delete_headers(host):
+    return {
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": f"http://{host}/ECCB/EditMessage.html",
+        "Origin": f"http://{host}",
+    }
+
 def save_message_obj(msg_obj):
-    """POST a full message object to savemessage.php.
-    The ECCB native UI sends JSON as raw request body with Content-Type application/json,
-    wrapped in a MessageRequest envelope: {"MessageRequest": <msg_obj>}
-    We try several formats in order until one works (non-empty response body).
-    """
-    candidates = [
-        # Format 1: raw JSON body — most likely based on ECCB REST pattern
-        dict(json=msg_obj),
-        # Format 2: wrapped envelope
-        dict(json={"MessageRequest": msg_obj}),
-        # Format 3: form field 'Message' as JSON string
-        dict(data={"Message": json.dumps(msg_obj)}),
-        # Format 4: form field 'message' lowercase
-        dict(data={"message": json.dumps(msg_obj)}),
-    ]
-    last_r = None
-    for kwargs in candidates:
-        r = requests.post(f"{BASE_URL}/ECCB/savemessage.php",
-                          auth=auth(), timeout=60, **kwargs)
-        last_r = r
-        app.logger.info(f"savemessage attempt kwargs={list(kwargs.keys())} -> {r.status_code}: {r.text[:200]}")
-        if r.status_code == 200 and r.text.strip():
-            return r.text, r.status_code
-    return last_r.text, last_r.status_code
+    """POST message as raw JSON body with the exact headers the native UI sends."""
+    r = requests.post(
+        f"{BASE_URL}/ECCB/savemessage.php",
+        auth=auth(),
+        headers=_eccb_headers(SIGN_IP),
+        json=msg_obj,
+        timeout=60,
+    )
+    app.logger.info(f"savemessage -> {r.status_code}: {r.content[:200]}")
+    return r.text, r.status_code
+
+def delete_message_by_name(name):
+    """Delete using form-urlencoded body with AJAX headers (what the native browser sends)."""
+    r = requests.post(
+        f"{BASE_URL}/ECCB/deletemessage.php",
+        auth=auth(),
+        headers=_delete_headers(SIGN_IP),
+        data={"Name": name},
+        timeout=60,
+    )
+    app.logger.info(f"deletemessage '{name}' -> {r.status_code}: {r.content[:200]}")
+    return r.text, r.status_code
 
 def delete_message_by_name(name):
     """Delete a message by name."""
@@ -276,16 +293,16 @@ def api_probe_save():
         ]
         for label, kwargs in formats:
             if kwargs is None:
-                # test delete
+                # test delete with correct headers
                 r = requests.post(f"{BASE_URL}/ECCB/deletemessage.php",
-                                  auth=auth(), data={"Name": name}, timeout=60)
-                results.append({"format": "delete_Name_field", "status": r.status_code, "body": r.text[:300]})
-                r2 = requests.post(f"{BASE_URL}/ECCB/deletemessage.php",
-                                  auth=auth(), data={"name": name}, timeout=60)
-                results.append({"format": "delete_name_lc_field", "status": r2.status_code, "body": r2.text[:300]})
+                                  auth=auth(), headers=_delete_headers(SIGN_IP),
+                                  data={"Name": name}, timeout=60)
+                results.append({"format": "delete_form_urlencoded_headers", "status": r.status_code, "body": r.text[:300]})
             else:
+                # add correct headers to all save attempts
+                h = _eccb_headers(SIGN_IP) if "json" in kwargs else _delete_headers(SIGN_IP)
                 r = requests.post(f"{BASE_URL}/ECCB/savemessage.php",
-                                  auth=auth(), timeout=60, **kwargs)
+                                  auth=auth(), headers=h, timeout=60, **kwargs)
                 results.append({"format": label, "status": r.status_code, "body": r.text[:300]})
         # Check final message count
         msgs_after = get_messages()
