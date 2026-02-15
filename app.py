@@ -20,7 +20,12 @@ def auth():
 def sign_get(path):
     try:
         r = requests.get(f"{BASE_URL}{path}", auth=auth(), timeout=60)
-        return r.json() if r.headers.get("content-type","").startswith("application/json") else r.text, r.status_code
+        # Always strip UTF-8 BOM before parsing — ECCB firmware prepends it to every response
+        raw = r.content.decode("utf-8-sig").strip()
+        try:
+            return json.loads(raw), r.status_code
+        except Exception:
+            return raw, r.status_code
     except requests.exceptions.ConnectionError:
         return {"error": "Cannot reach sign — check IP/network"}, 503
     except Exception as e:
@@ -146,9 +151,10 @@ def api_raw():
             timeout=60
         )
         try:
-            return jsonify(r.json()), r.status_code
+            raw = r.content.decode("utf-8-sig").strip()
+            return jsonify(json.loads(raw)), r.status_code
         except Exception:
-            return jsonify({"raw": r.text}), r.status_code
+            return jsonify({"raw": r.content.decode("utf-8-sig", errors="replace").strip()}), r.status_code
     except requests.exceptions.ConnectionError:
         return jsonify({"error": "Cannot reach sign"}), 503
     except Exception as e:
