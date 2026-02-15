@@ -469,6 +469,28 @@
     border-top: 1px solid var(--border);
     margin: 16px 0;
   }
+
+  /* ─── Toggle switch ─── */
+  .toggle-wrap { display:inline-flex; cursor:pointer; }
+  .toggle-track {
+    width: 36px; height: 20px;
+    background: var(--border2);
+    border-radius: 10px;
+    position: relative;
+    transition: background 0.2s;
+  }
+  .toggle-track.on { background: var(--green); }
+  .toggle-thumb {
+    width: 14px; height: 14px;
+    background: #fff;
+    border-radius: 50%;
+    position: absolute;
+    top: 3px; left: 3px;
+    transition: left 0.2s;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+  }
+  .toggle-track.on .toggle-thumb { left: 19px; }
+
 </style>
 </head>
 <body>
@@ -592,35 +614,38 @@
           </div>
         </div>
       </div>
+    </div>
 
-      <div class="card">
-        <div class="card-header"><span class="card-title">New Message</span></div>
-        <div class="card-body">
-          <div class="tabs">
-            <div class="tab active" onclick="switchTab(this,'msg-simple')">Simple</div>
-            <div class="tab" onclick="switchTab(this,'msg-raw')">Raw POST</div>
-          </div>
-          <div class="tab-content active" id="msg-simple">
-            <div class="form-row"><label>Message Name</label><input type="text" id="msg-name" placeholder="e.g. Welcome"></div>
-            <div class="form-row"><label>Message Text</label><textarea id="msg-text" placeholder="Text to display on sign..."></textarea></div>
-            <div class="form-grid">
-              <div class="form-row"><label>Priority</label>
-                <select id="msg-priority">
-                  <option value="1">1 – Low</option>
-                  <option value="5" selected>5 – Normal</option>
-                  <option value="9">9 – High</option>
-                </select>
+    <!-- EDIT MODAL OVERLAY -->
+    <div id="edit-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:500;align-items:center;justify-content:center;" onclick="if(event.target===this)closeModal()">
+      <div style="background:var(--surface);border:1px solid var(--orange);border-radius:3px;width:600px;max-width:95vw;max-height:88vh;overflow-y:auto;padding:0;">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--border);background:rgba(0,0,0,0.3);">
+          <span style="font-family:var(--head);font-weight:700;font-size:14px;letter-spacing:0.1em;text-transform:uppercase;">Edit Message — <span id="modal-title" style="color:var(--orange);"></span></span>
+          <button class="btn sm" onclick="closeModal()">✕ Close</button>
+        </div>
+        <div style="padding:20px;display:flex;flex-direction:column;gap:16px;">
+          <div id="modal-frames"></div>
+          <div style="border-top:1px solid var(--border);padding-top:16px;">
+            <div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:var(--text-dim);margin-bottom:10px;">Schedule</div>
+            <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+              <label style="display:flex;align-items:center;gap:8px;text-transform:none;font-size:12px;cursor:pointer;">
+                <input type="checkbox" id="modal-enabled" style="width:auto;"> Enabled
+              </label>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span style="font-size:10px;color:var(--text-dim);letter-spacing:0.08em;">START</span>
+                <input type="text" id="modal-start" style="width:90px;" placeholder="PT0H0M0S">
               </div>
-              <div class="form-row"><label>Duration (sec)</label><input type="number" id="msg-duration" value="10" min="1"></div>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span style="font-size:10px;color:var(--text-dim);letter-spacing:0.08em;">END</span>
+                <input type="text" id="modal-end" style="width:90px;" placeholder="PT0H0M0S">
+              </div>
             </div>
-            <button class="btn primary" onclick="saveMessage()">Save Message</button>
           </div>
-          <div class="tab-content" id="msg-raw">
-            <div class="form-row"><label>Raw POST body (form-encoded key=value pairs)</label>
-              <textarea id="raw-post-body" placeholder="name=Welcome&text=Hello+World&priority=5&duration=10" style="min-height:120px;"></textarea>
-            </div>
-            <button class="btn primary" onclick="saveRawMessage()">POST to savemessage.php</button>
+          <div style="display:flex;gap:10px;justify-content:flex-end;">
+            <button class="btn" onclick="closeModal()">Cancel</button>
+            <button class="btn primary" onclick="saveEdit()">Save to Sign</button>
           </div>
+          <div id="modal-result" style="font-size:11px;color:var(--text-dim);min-height:18px;"></div>
         </div>
       </div>
     </div>
@@ -887,88 +912,128 @@ async function loadConfig() {
 }
 
 // ─── Messages ───────────────────────────────────────────────────
+let _editMsg = null;
+
 async function loadMessages() {
   log('Fetching messages...');
   const r = await api('/api/messages');
   const el = document.getElementById('msg-list-out');
-
   if (!r.ok) {
     el.innerHTML = `<div class="empty" style="color:var(--red)">Error: ${r.data.error || 'Failed'}</div>`;
-    log('Message fetch failed', 'err');
-    return;
+    log('Message fetch failed', 'err'); return;
   }
-
   const msgs = r.data.messages || [];
   log(`${msgs.length} messages loaded`, 'ok');
-
-  if (!msgs.length) {
-    el.innerHTML = `<div class="empty">No messages found on sign</div>`;
-    return;
-  }
+  if (!msgs.length) { el.innerHTML = `<div class="empty">No messages found on sign</div>`; return; }
 
   el.innerHTML = msgs.map((m, i) => {
-    const name      = m.Name || m.name || `Message ${i+1}`;
-    const enabled   = m.CurrentSchedule?.Enabled;
-    const frames    = m.Frames || [];
-    const frameCount = frames.length;
-    const dataSrc   = m.DataSrc ? `<span class="msg-badge">${m.DataSrc}</span>` : '';
-    const permanent = m.IsPermanent ? `<span class="msg-badge">Permanent</span>` : '';
-    const schedBadge = enabled
-      ? `<span class="tag tag-green" style="font-size:9px;padding:1px 6px;">ON</span>`
-      : `<span class="tag tag-red"   style="font-size:9px;padding:1px 6px;">OFF</span>`;
-    // Collect all text lines across frames for preview
-    const preview = frames.flatMap(f => (f.Lines||[]).map(l => l.Text)).filter(Boolean).slice(0,4).join(' · ') || '—';
+    const name    = m.Name || `Message ${i+1}`;
+    const enabled = m.CurrentSchedule?.Enabled;
+    const frames  = m.Frames || [];
+    const dataSrc = m.DataSrc ? `<span class="msg-badge">${m.DataSrc}</span>` : '';
+    const perm    = m.IsPermanent ? `<span class="msg-badge">Perm</span>` : '';
+    const preview = frames.flatMap(f => (f.Lines||[]).map(l => l.Text)).filter(Boolean).slice(0,3).join(' · ') || '—';
+    const safeN   = name.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    const msgJson = JSON.stringify(JSON.stringify(m));
     return `
-    <div class="msg-item">
+    <div class="msg-item" id="msgitem-${i}">
       <div style="flex:1;min-width:0;">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;">
-          <div class="msg-item-name">${name}</div>
-          ${schedBadge}
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:5px;flex-wrap:wrap;">
+          <div class="msg-item-name">${name}</div>${dataSrc}${perm}
         </div>
-        <div class="msg-item-meta">
-          ${dataSrc}${permanent}
-          ${frameCount} frame${frameCount !== 1 ? 's' : ''}
-          &nbsp;·&nbsp;
-          <span style="color:var(--text);opacity:0.7;">${preview}</span>
-        </div>
+        <div class="msg-item-meta">${frames.length} frame${frames.length!==1?'s':''} &nbsp;·&nbsp; <span style="opacity:0.75;">${preview}</span></div>
       </div>
-      <button class="btn sm danger" onclick="deleteMessage('${name.replace(/'/g,"\\'")}')">✕</button>
+      <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;text-transform:none;font-size:11px;margin:0;">
+          <div class="toggle-wrap" onclick="toggleMessage('${safeN}', ${!enabled}, ${i})">
+            <div class="toggle-track ${enabled ? 'on' : ''}" id="toggle-track-${i}"><div class="toggle-thumb"></div></div>
+          </div>
+          <span id="toggle-lbl-${i}" style="color:${enabled?'var(--green)':\'var(--red)\'}">${enabled?'ON':'OFF'}</span>
+        </label>
+        <button class="btn sm" onclick='openEdit(${msgJson})'>✎ Edit</button>
+        <button class="btn sm danger" onclick="deleteMessage('${safeN}')">✕</button>
+      </div>
     </div>`;
   }).join('');
 }
 
-async function saveMessage() {
-  const body = {
-    name:     document.getElementById('msg-name').value,
-    text:     document.getElementById('msg-text').value,
-    priority: document.getElementById('msg-priority').value,
-    duration: document.getElementById('msg-duration').value,
-  };
-  if (!body.name || !body.text) { log('Name and text required', 'err'); return; }
-  log(`Saving message: ${body.name}...`);
-  const r = await api('/api/messages/save', { method:'POST', body: JSON.stringify(body) });
-  if (r.ok) { log(`Message saved (${r.status})`, 'ok'); loadMessages(); }
-  else       log(`Save failed: ${JSON.stringify(r.data)}`, 'err');
+async function toggleMessage(name, newEnabled, idx) {
+  log(`${newEnabled ? 'Enabling' : 'Disabling'} "${name}"...`);
+  const track = document.getElementById(`toggle-track-${idx}`);
+  const lbl   = document.getElementById(`toggle-lbl-${idx}`);
+  if (track) track.className = `toggle-track ${newEnabled ? 'on' : ''}`;
+  if (lbl)   { lbl.textContent = newEnabled ? 'ON' : 'OFF'; lbl.style.color = newEnabled ? 'var(--green)' : 'var(--red)'; }
+  const r = await api('/api/messages/toggle', { method:'POST', body: JSON.stringify({ name, enabled: newEnabled }) });
+  if (r.ok) {
+    log(`"${name}" ${newEnabled ? 'enabled' : 'disabled'} (${r.data.status})`, 'ok');
+  } else {
+    log(`Toggle failed: ${r.data.error || JSON.stringify(r.data)}`, 'err');
+    if (track) track.className = `toggle-track ${!newEnabled ? 'on' : ''}`;
+    if (lbl)   { lbl.textContent = !newEnabled ? 'ON' : 'OFF'; lbl.style.color = !newEnabled ? 'var(--green)' : 'var(--red)'; }
+  }
 }
 
-async function saveRawMessage() {
-  const raw = document.getElementById('raw-post-body').value;
-  log('Sending raw POST to savemessage.php...');
-  const r = await fetch('/api/messages/save', {
-    method: 'POST',
-    headers: { 'Content-Type':'application/json' },
-    body: JSON.stringify(Object.fromEntries(new URLSearchParams(raw)))
-  });
-  const data = await r.json().catch(() => ({}));
-  log(`Result: ${JSON.stringify(data)}`, r.ok ? 'ok' : 'err');
+function openEdit(msgJson) {
+  _editMsg = JSON.parse(msgJson);
+  document.getElementById('modal-title').textContent   = _editMsg.Name;
+  document.getElementById('modal-enabled').checked     = _editMsg.CurrentSchedule?.Enabled || false;
+  document.getElementById('modal-start').value         = _editMsg.CurrentSchedule?.StartTime || 'PT0H0M0S';
+  document.getElementById('modal-end').value           = _editMsg.CurrentSchedule?.EndTime   || 'PT0H0M0S';
+  document.getElementById('modal-result').textContent  = '';
+  const frames = _editMsg.Frames || [];
+  document.getElementById('modal-frames').innerHTML = frames.map((frame, fi) => {
+    const lines = frame.Lines || [];
+    return `<div style="border:1px solid var(--border);border-radius:2px;padding:14px;margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <span style="font-family:var(--head);font-weight:700;font-size:12px;letter-spacing:0.1em;text-transform:uppercase;color:var(--amber);">Frame ${fi+1}</span>
+        <span style="font-size:10px;color:var(--text-dim);">Hold: ${frame.HoldTime||''}</span>
+      </div>
+      ${lines.map((line, li) => `<div style="margin-bottom:8px;">
+        <label>Line ${li+1} <span style="color:var(--text-dim);font-size:9px;">(${line.FontSize}pt)</span></label>
+        <input type="text" id="fl-${fi}-${li}" value="${(line.Text||'').replace(/"/g,'&quot;')}" placeholder="empty">
+      </div>`).join('')}
+    </div>`;
+  }).join('') || '<div class="empty">No frames</div>';
+  document.getElementById('edit-modal').style.display = 'flex';
+}
+
+function closeModal() {
+  document.getElementById('edit-modal').style.display = 'none';
+  _editMsg = null;
+}
+
+async function saveEdit() {
+  if (!_editMsg) return;
+  const resultEl = document.getElementById('modal-result');
+  resultEl.textContent = 'Saving...'; resultEl.style.color = 'var(--text-dim)';
+  const frames = (_editMsg.Frames || []).map((frame, fi) => ({
+    frameIndex: fi,
+    lines: (frame.Lines || []).map((_, li) => { const el = document.getElementById(`fl-${fi}-${li}`); return el ? el.value : ''; })
+  }));
+  const schedule = {
+    Enabled:   document.getElementById('modal-enabled').checked,
+    StartTime: document.getElementById('modal-start').value,
+    EndTime:   document.getElementById('modal-end').value,
+    Dow:       _editMsg.CurrentSchedule?.Dow ?? 127
+  };
+  log(`Saving edits to "${_editMsg.Name}"...`);
+  const r = await api('/api/messages/update', { method:'POST', body: JSON.stringify({ name: _editMsg.Name, frames, schedule }) });
+  if (r.ok) {
+    resultEl.textContent = '✓ Saved'; resultEl.style.color = 'var(--green)';
+    log(`"${_editMsg.Name}" saved (${r.data.status})`, 'ok');
+    loadMessages();
+  } else {
+    resultEl.textContent = `✗ ${r.data.error || JSON.stringify(r.data)}`; resultEl.style.color = 'var(--red)';
+    log(`Save failed: ${r.data.error || JSON.stringify(r.data)}`, 'err');
+  }
 }
 
 async function deleteMessage(name) {
   if (!confirm(`Delete message "${name}"?`)) return;
-  log(`Deleting message "${name}"...`);
+  log(`Deleting "${name}"...`);
   const r = await api('/api/messages/delete', { method:'POST', body: JSON.stringify({Name: name}) });
-  if (r.ok) { log(`Deleted "${name}" (${r.status})`, 'ok'); loadMessages(); }
-  else       log(`Delete failed: ${JSON.stringify(r.data)}`, 'err');
+  if (r.ok) { log(`Deleted "${name}" (${r.data.status})`, 'ok'); loadMessages(); }
+  else       log(`Delete failed: ${r.data.error || JSON.stringify(r.data)}`, 'err');
 }
 
 // ─── Dimming ────────────────────────────────────────────────────

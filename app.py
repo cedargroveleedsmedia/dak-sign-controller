@@ -18,11 +18,9 @@ def auth():
     return HTTPBasicAuth(USERNAME, PASSWORD)
 
 def strip_bom(raw_bytes):
-    # ECCB firmware sometimes prepends a double BOM — strip all of them
     text = raw_bytes.decode("utf-8-sig").strip()
-    # If a second BOM snuck through as the literal characters ï»¿, strip again
-    while text.startswith("﻿") or text.startswith("\ufeff"):
-        text = text.lstrip("﻿").strip()
+    while text.startswith("\ufeff"):
+        text = text.lstrip("\ufeff").strip()
     return text
 
 def sign_get(path):
@@ -56,7 +54,14 @@ def sign_post(path, data=None):
     except Exception as e:
         return {"error": str(e)}, 500
 
-# Routes
+def get_messages():
+    """Fetch and return the message list, stripping BOM."""
+    r = requests.get(f"{BASE_URL}/ECCB/getmessagelist.php", auth=auth(), timeout=60)
+    raw = strip_bom(r.content)
+    data = json.loads(raw)
+    return data.get("Messages") or data.get("messages") or []
+
+# ─── Routes ────────────────────────────────────────────────────────────────────
 
 @app.route("/")
 def index():
@@ -78,15 +83,12 @@ def api_dimming():
     data, code = sign_get("/daktronics/syscontrol/1.0/configuration/output/0/dimming")
     return jsonify(data), code
 
-# Messages — strip UTF-8 BOM that ECCB firmware prepends, normalize key to lowercase
+# Messages
 @app.route("/api/messages")
 def api_messages():
     try:
-        r = requests.get(f"{BASE_URL}/ECCB/getmessagelist.php", auth=auth(), timeout=60)
-        raw = strip_bom(r.content)
-        data = json.loads(raw)
-        msgs = data.get("Messages") or data.get("messages") or data.get("messageList") or []
-        return jsonify({"messages": msgs}), r.status_code
+        msgs = get_messages()
+        return jsonify({"messages": msgs}), 200
     except requests.exceptions.ConnectionError:
         return jsonify({"error": "Cannot reach sign"}), 503
     except Exception as e:
@@ -94,9 +96,69 @@ def api_messages():
 
 @app.route("/api/messages/save", methods=["POST"])
 def api_save_message():
+    """Save (create or update) a full message object as JSON."""
     payload = request.json or {}
-    text, code = sign_post("/ECCB/savemessage.php", data=payload)
+    # savemessage.php expects the message as a JSON string in a 'Message' field
+    text, code = sign_post("/ECCB/savemessage.php", data={"Message": json.dumps(payload)})
     return jsonify({"result": text, "status": code}), code
+
+@app.route("/api/messages/toggle", methods=["POST"])
+def api_toggle_message():
+    """Toggle CurrentSchedule.Enabled for a named message."""
+    body = request.json or {}
+    name = body.get("name")
+    enabled = body.get("enabled")  # bool
+    if name is None or enabled is None:
+        return jsonify({"error": "name and enabled required"}), 400
+    try:
+        msgs = get_messages()
+        msg = next((m for m in msgs if m.get("Name") == name), None)
+        if msg is None:
+            return jsonify({"error": f"Message '{name}' not found"}), 404
+        msg["CurrentSchedule"]["Enabled"] = enabled
+        text, code = sign_post("/ECCB/savemessage.php", data={"Message": json.dumps(msg)})
+        return jsonify({"result": text, "status": code, "enabled": enabled}), code
+    except requests.exceptions.ConnectionError:
+        return jsonify({"error": "Cannot reach sign"}), 503
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/messages/update", methods=["POST"])
+def api_update_message():
+    """Update an existing message — fetch it, merge changes, re-save."""
+    body = request.json or {}
+    name = body.get("name")
+    if not name:
+        return jsonify({"error": "name required"}), 400
+    try:
+        msgs = get_messages()
+        msg = next((m for m in msgs if m.get("Name") == name), None)
+        if msg is None:
+            return jsonify({"error": f"Message '{name}' not found"}), 404
+
+        # Apply frame text updates if provided
+        new_frames = body.get("frames")  # list of {frameIndex, lines: [text, ...]}
+        if new_frames:
+            for fu in new_frames:
+                fi = fu.get("frameIndex", 0)
+                if fi < len(msg["Frames"]):
+                    frame = msg["Frames"][fi]
+                    new_lines = fu.get("lines", [])
+                    for li, text in enumerate(new_lines):
+                        if li < len(frame["Lines"]):
+                            frame["Lines"][li]["Text"] = text
+
+        # Apply schedule changes if provided
+        sched = body.get("schedule")
+        if sched is not None:
+            msg["CurrentSchedule"].update(sched)
+
+        text, code = sign_post("/ECCB/savemessage.php", data={"Message": json.dumps(msg)})
+        return jsonify({"result": text, "status": code, "message": msg}), code
+    except requests.exceptions.ConnectionError:
+        return jsonify({"error": "Cannot reach sign"}), 503
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/api/messages/delete", methods=["POST"])
 def api_delete_message():
@@ -124,7 +186,7 @@ def api_set_brightness():
     text, code = sign_put("/daktronics/syscontrol/1.0/configuration/output/0/dimming", data=body)
     return jsonify({"result": text, "status": code}), code
 
-# Settings update (live)
+# Settings
 @app.route("/api/settings", methods=["POST"])
 def api_update_settings():
     global SIGN_IP, USERNAME, PASSWORD, BASE_URL, ECCB_URL, API_URL
