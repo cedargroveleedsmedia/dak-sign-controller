@@ -17,11 +17,18 @@ API_URL  = f"{BASE_URL}/daktronics/syscontrol/1.0"
 def auth():
     return HTTPBasicAuth(USERNAME, PASSWORD)
 
+def strip_bom(raw_bytes):
+    # ECCB firmware sometimes prepends a double BOM — strip all of them
+    text = raw_bytes.decode("utf-8-sig").strip()
+    # If a second BOM snuck through as the literal characters ï»¿, strip again
+    while text.startswith("﻿") or text.startswith("\ufeff"):
+        text = text.lstrip("﻿").strip()
+    return text
+
 def sign_get(path):
     try:
         r = requests.get(f"{BASE_URL}{path}", auth=auth(), timeout=60)
-        # Always strip UTF-8 BOM before parsing — ECCB firmware prepends it to every response
-        raw = r.content.decode("utf-8-sig").strip()
+        raw = strip_bom(r.content)
         try:
             return json.loads(raw), r.status_code
         except Exception:
@@ -76,8 +83,7 @@ def api_dimming():
 def api_messages():
     try:
         r = requests.get(f"{BASE_URL}/ECCB/getmessagelist.php", auth=auth(), timeout=60)
-        # utf-8-sig codec automatically strips the BOM (0xEF 0xBB 0xBF / ï»¿)
-        raw = r.content.decode("utf-8-sig").strip()
+        raw = strip_bom(r.content)
         data = json.loads(raw)
         msgs = data.get("Messages") or data.get("messages") or data.get("messageList") or []
         return jsonify({"messages": msgs}), r.status_code
@@ -151,10 +157,10 @@ def api_raw():
             timeout=60
         )
         try:
-            raw = r.content.decode("utf-8-sig").strip()
+            raw = strip_bom(r.content)
             return jsonify(json.loads(raw)), r.status_code
         except Exception:
-            return jsonify({"raw": r.content.decode("utf-8-sig", errors="replace").strip()}), r.status_code
+            return jsonify({"raw": strip_bom(r.content)}), r.status_code
     except requests.exceptions.ConnectionError:
         return jsonify({"error": "Cannot reach sign"}), 503
     except Exception as e:
