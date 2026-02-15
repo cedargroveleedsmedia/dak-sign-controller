@@ -19,7 +19,7 @@ def auth():
 
 def sign_get(path):
     try:
-        r = requests.get(f"{BASE_URL}{path}", auth=auth(), timeout=5)
+        r = requests.get(f"{BASE_URL}{path}", auth=auth(), timeout=60)
         return r.json() if r.headers.get("content-type","").startswith("application/json") else r.text, r.status_code
     except requests.exceptions.ConnectionError:
         return {"error": "Cannot reach sign — check IP/network"}, 503
@@ -28,7 +28,7 @@ def sign_get(path):
 
 def sign_put(path, data=None):
     try:
-        r = requests.put(f"{BASE_URL}{path}", auth=auth(), json=data, timeout=5)
+        r = requests.put(f"{BASE_URL}{path}", auth=auth(), json=data, timeout=60)
         return r.text, r.status_code
     except requests.exceptions.ConnectionError:
         return {"error": "Cannot reach sign"}, 503
@@ -37,7 +37,7 @@ def sign_put(path, data=None):
 
 def sign_post(path, data=None):
     try:
-        r = requests.post(f"{BASE_URL}{path}", auth=auth(), data=data, timeout=5)
+        r = requests.post(f"{BASE_URL}{path}", auth=auth(), data=data, timeout=60)
         return r.text, r.status_code
     except requests.exceptions.ConnectionError:
         return {"error": "Cannot reach sign"}, 503
@@ -70,7 +70,7 @@ def api_dimming():
 @app.route("/api/messages")
 def api_messages():
     try:
-        r = requests.get(f"{BASE_URL}/ECCB/getmessagelist.php", auth=auth(), timeout=5)
+        r = requests.get(f"{BASE_URL}/ECCB/getmessagelist.php", auth=auth(), timeout=60)
         # utf-8-sig codec automatically strips the BOM (0xEF 0xBB 0xBF / ï»¿)
         raw = r.content.decode("utf-8-sig").strip()
         data = json.loads(raw)
@@ -143,7 +143,7 @@ def api_raw():
             f"{BASE_URL}{path}",
             auth=auth(),
             json=json.loads(data) if data and method != "GET" else None,
-            timeout=5
+            timeout=60
         )
         try:
             return jsonify(r.json()), r.status_code
