@@ -850,7 +850,7 @@ async function loadDashboard() {
   document.getElementById('s-health').className   = 'stat-value ' + (String(health).toLowerCase().includes('ok') ? 'ok' : 'warn');
 
   if (mr.ok) {
-    const msgs = Array.isArray(mr.data) ? mr.data : (mr.data.messages || mr.data.messageList || []);
+    const msgs = mr.data.messages || [];
     document.getElementById('s-msgs').textContent = msgs.length;
   }
 }
@@ -892,30 +892,47 @@ async function loadMessages() {
   const r = await api('/api/messages');
   const el = document.getElementById('msg-list-out');
 
-  if (!r.ok) { el.innerHTML = `<div class="empty" style="color:var(--red)">Error: ${r.data.error || 'Failed'}</div>`; log('Message fetch failed','err'); return; }
-  log('Messages loaded', 'ok');
+  if (!r.ok) {
+    el.innerHTML = `<div class="empty" style="color:var(--red)">Error: ${r.data.error || 'Failed'}</div>`;
+    log('Message fetch failed', 'err');
+    return;
+  }
 
-  const msgs = Array.isArray(r.data) ? r.data : (r.data.messages || r.data.messageList || r.data.MessageList || []);
+  const msgs = r.data.messages || [];
+  log(`${msgs.length} messages loaded`, 'ok');
+
   if (!msgs.length) {
-    el.innerHTML = `<div class="empty">No messages found on sign<br><span style="font-size:10px;opacity:0.5">Raw: ${JSON.stringify(r.data).substring(0,120)}</span></div>`;
+    el.innerHTML = `<div class="empty">No messages found on sign</div>`;
     return;
   }
 
   el.innerHTML = msgs.map((m, i) => {
-    const name = m.name || m.Name || m.title || m.Title || `Message ${i+1}`;
-    const id   = m.id || m.Id || m.messageId || i;
-    const prio = m.priority || m.Priority || '—';
-    const dur  = m.duration || m.Duration || '—';
+    const name      = m.Name || m.name || `Message ${i+1}`;
+    const enabled   = m.CurrentSchedule?.Enabled;
+    const frames    = m.Frames || [];
+    const frameCount = frames.length;
+    const dataSrc   = m.DataSrc ? `<span class="msg-badge">${m.DataSrc}</span>` : '';
+    const permanent = m.IsPermanent ? `<span class="msg-badge">Permanent</span>` : '';
+    const schedBadge = enabled
+      ? `<span class="tag tag-green" style="font-size:9px;padding:1px 6px;">ON</span>`
+      : `<span class="tag tag-red"   style="font-size:9px;padding:1px 6px;">OFF</span>`;
+    // Collect all text lines across frames for preview
+    const preview = frames.flatMap(f => (f.Lines||[]).map(l => l.Text)).filter(Boolean).slice(0,4).join(' · ') || '—';
     return `
     <div class="msg-item">
-      <div>
-        <div class="msg-item-name">${name}</div>
+      <div style="flex:1;min-width:0;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;">
+          <div class="msg-item-name">${name}</div>
+          ${schedBadge}
+        </div>
         <div class="msg-item-meta">
-          <span class="msg-badge">ID ${id}</span>
-          Priority: ${prio} &nbsp;|&nbsp; Duration: ${dur}s
+          ${dataSrc}${permanent}
+          ${frameCount} frame${frameCount !== 1 ? 's' : ''}
+          &nbsp;·&nbsp;
+          <span style="color:var(--text);opacity:0.7;">${preview}</span>
         </div>
       </div>
-      <button class="btn sm danger" onclick="deleteMessage('${id}', '${name}')">✕</button>
+      <button class="btn sm danger" onclick="deleteMessage('${name.replace(/'/g,"\\'")}')">✕</button>
     </div>`;
   }).join('');
 }
@@ -946,12 +963,12 @@ async function saveRawMessage() {
   log(`Result: ${JSON.stringify(data)}`, r.ok ? 'ok' : 'err');
 }
 
-async function deleteMessage(id, name) {
+async function deleteMessage(name) {
   if (!confirm(`Delete message "${name}"?`)) return;
-  log(`Deleting message ${id}...`);
-  const r = await api('/api/messages/delete', { method:'POST', body: JSON.stringify({id}) });
-  if (r.ok) { log(`Deleted (${r.status})`, 'ok'); loadMessages(); }
-  else       log(`Delete failed`, 'err');
+  log(`Deleting message "${name}"...`);
+  const r = await api('/api/messages/delete', { method:'POST', body: JSON.stringify({Name: name}) });
+  if (r.ok) { log(`Deleted "${name}" (${r.status})`, 'ok'); loadMessages(); }
+  else       log(`Delete failed: ${JSON.stringify(r.data)}`, 'err');
 }
 
 // ─── Dimming ────────────────────────────────────────────────────

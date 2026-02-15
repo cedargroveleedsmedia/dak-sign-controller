@@ -44,7 +44,7 @@ def sign_post(path, data=None):
     except Exception as e:
         return {"error": str(e)}, 500
 
-# ─── Routes ────────────────────────────────────────────────────────────────────
+# Routes
 
 @app.route("/")
 def index():
@@ -66,16 +66,20 @@ def api_dimming():
     data, code = sign_get("/daktronics/syscontrol/1.0/configuration/output/0/dimming")
     return jsonify(data), code
 
-# Messages
+# Messages — strip UTF-8 BOM that ECCB firmware prepends, normalize key to lowercase
 @app.route("/api/messages")
 def api_messages():
-    data, code = sign_get("/ECCB/getmessagelist.php")
-    if isinstance(data, str):
-        try:
-            data = json.loads(data)
-        except:
-            data = {"raw": data}
-    return jsonify(data), code
+    try:
+        r = requests.get(f"{BASE_URL}/ECCB/getmessagelist.php", auth=auth(), timeout=5)
+        # utf-8-sig codec automatically strips the BOM (0xEF 0xBB 0xBF / ï»¿)
+        raw = r.content.decode("utf-8-sig").strip()
+        data = json.loads(raw)
+        msgs = data.get("Messages") or data.get("messages") or data.get("messageList") or []
+        return jsonify({"messages": msgs}), r.status_code
+    except requests.exceptions.ConnectionError:
+        return jsonify({"error": "Cannot reach sign"}), 503
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/api/messages/save", methods=["POST"])
 def api_save_message():
@@ -126,14 +130,13 @@ def api_update_settings():
 def api_get_settings():
     return jsonify({"ip": SIGN_IP, "username": USERNAME, "password": PASSWORD})
 
-# Raw proxy — lets the UI hit any sign endpoint directly
+# Raw proxy
 @app.route("/api/raw", methods=["POST"])
 def api_raw():
     body   = request.json or {}
     path   = body.get("path", "/")
     method = body.get("method", "GET").upper()
     data   = body.get("body", None)
-
     try:
         r = requests.request(
             method,
