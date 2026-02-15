@@ -3,6 +3,7 @@ import requests
 from requests.auth import HTTPBasicAuth
 from datetime import datetime, timezone
 import json
+import copy
 
 app = Flask(__name__)
 
@@ -11,8 +12,6 @@ SIGN_IP = "192.168.1.51"
 USERNAME = "Dak"
 PASSWORD = "DakPassword"
 BASE_URL = f"http://{SIGN_IP}"
-ECCB_URL = f"{BASE_URL}/ECCB"
-API_URL  = f"{BASE_URL}/daktronics/syscontrol/1.0"
 
 def auth():
     return HTTPBasicAuth(USERNAME, PASSWORD)
@@ -55,11 +54,30 @@ def sign_post(path, data=None):
         return {"error": str(e)}, 500
 
 def get_messages():
-    """Fetch and return the message list, stripping BOM."""
     r = requests.get(f"{BASE_URL}/ECCB/getmessagelist.php", auth=auth(), timeout=60)
     raw = strip_bom(r.content)
     data = json.loads(raw)
     return data.get("Messages") or data.get("messages") or []
+
+def save_message_obj(msg_obj):
+    """POST a full message object to savemessage.php.
+    The ECCB expects the message as a JSON string in the 'Message' POST field.
+    Try both the wrapped form and direct JSON body."""
+    payload = json.dumps(msg_obj)
+    # Try form field 'Message' first (what the native UI uses)
+    r = requests.post(f"{BASE_URL}/ECCB/savemessage.php",
+                      auth=auth(),
+                      data={"Message": payload},
+                      timeout=60)
+    return r.text, r.status_code
+
+def delete_message_by_name(name):
+    """Delete a message by name."""
+    r = requests.post(f"{BASE_URL}/ECCB/deletemessage.php",
+                      auth=auth(),
+                      data={"Name": name},
+                      timeout=60)
+    return r.text, r.status_code
 
 # ─── Routes ────────────────────────────────────────────────────────────────────
 
@@ -67,7 +85,6 @@ def get_messages():
 def index():
     return render_template("index.html", sign_ip=SIGN_IP)
 
-# Status & config
 @app.route("/api/status")
 def api_status():
     data, code = sign_get("/daktronics/syscontrol/1.0/status")
@@ -83,7 +100,6 @@ def api_dimming():
     data, code = sign_get("/daktronics/syscontrol/1.0/configuration/output/0/dimming")
     return jsonify(data), code
 
-# Messages
 @app.route("/api/messages")
 def api_messages():
     try:
@@ -94,50 +110,68 @@ def api_messages():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route("/api/messages/save", methods=["POST"])
-def api_save_message():
-    """Save (create or update) a full message object as JSON."""
-    payload = request.json or {}
-    # savemessage.php expects the message as a JSON string in a 'Message' field
-    text, code = sign_post("/ECCB/savemessage.php", data={"Message": json.dumps(payload)})
-    return jsonify({"result": text, "status": code}), code
-
-@app.route("/api/messages/toggle", methods=["POST"])
-def api_toggle_message():
-    """Toggle CurrentSchedule.Enabled for a named message."""
+@app.route("/api/messages/create", methods=["POST"])
+def api_create_message():
+    """Create a brand new message from a simple form submission."""
     body = request.json or {}
-    name = body.get("name")
-    enabled = body.get("enabled")  # bool
-    if name is None or enabled is None:
-        return jsonify({"error": "name and enabled required"}), 400
+    name = body.get("name", "").strip()
+    text = body.get("text", "").strip()
+    font = body.get("font", "dak_eccb_black-webfont.ttf")
+    font_size = float(body.get("fontSize", 17.5))
+    hold = body.get("holdTime", "P0Y0M0DT0H0M5S")
+
+    if not name or not text:
+        return jsonify({"error": "name and text are required"}), 400
+
+    # Build a message object matching the ECCB structure
+    msg = {
+        "Name": name,
+        "Height": 32,
+        "Width": 72,
+        "IsPermanent": False,
+        "Frames": [
+            {
+                "HoldTime": hold,
+                "Lines": [
+                    {"Font": font, "FontSize": font_size, "Text": line}
+                    for line in text.splitlines() if line
+                ] or [{"Font": font, "FontSize": font_size, "Text": text}],
+                "LineSpacing": 0
+            }
+        ],
+        "CurrentSchedule": {
+            "Enabled": body.get("enabled", True),
+            "StartTime": "PT0H0M0S",
+            "EndTime": "PT0H0M0S",
+            "Dow": 127
+        }
+    }
     try:
-        msgs = get_messages()
-        msg = next((m for m in msgs if m.get("Name") == name), None)
-        if msg is None:
-            return jsonify({"error": f"Message '{name}' not found"}), 404
-        msg["CurrentSchedule"]["Enabled"] = enabled
-        text, code = sign_post("/ECCB/savemessage.php", data={"Message": json.dumps(msg)})
-        return jsonify({"result": text, "status": code, "enabled": enabled}), code
-    except requests.exceptions.ConnectionError:
-        return jsonify({"error": "Cannot reach sign"}), 503
+        result, code = save_message_obj(msg)
+        return jsonify({"result": result, "status": code, "message": msg}), code
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/messages/update", methods=["POST"])
 def api_update_message():
-    """Update an existing message — fetch it, merge changes, re-save."""
+    """Update an existing message.
+    Strategy: delete the old one by name, then save the updated version.
+    This avoids the ECCB creating duplicates when it can't match by name."""
     body = request.json or {}
-    name = body.get("name")
-    if not name:
+    original_name = body.get("name")
+    if not original_name:
         return jsonify({"error": "name required"}), 400
+
     try:
         msgs = get_messages()
-        msg = next((m for m in msgs if m.get("Name") == name), None)
+        msg = next((m for m in msgs if m.get("Name") == original_name), None)
         if msg is None:
-            return jsonify({"error": f"Message '{name}' not found"}), 404
+            return jsonify({"error": f"Message '{original_name}' not found"}), 404
 
-        # Apply frame text updates if provided
-        new_frames = body.get("frames")  # list of {frameIndex, lines: [text, ...]}
+        msg = copy.deepcopy(msg)
+
+        # Apply frame text updates
+        new_frames = body.get("frames")
         if new_frames:
             for fu in new_frames:
                 fi = fu.get("frameIndex", 0)
@@ -148,13 +182,49 @@ def api_update_message():
                         if li < len(frame["Lines"]):
                             frame["Lines"][li]["Text"] = text
 
-        # Apply schedule changes if provided
+        # Apply schedule changes
         sched = body.get("schedule")
         if sched is not None:
             msg["CurrentSchedule"].update(sched)
 
-        text, code = sign_post("/ECCB/savemessage.php", data={"Message": json.dumps(msg)})
-        return jsonify({"result": text, "status": code, "message": msg}), code
+        # Apply name change
+        new_name = body.get("newName", "").strip()
+        if new_name and new_name != original_name:
+            msg["Name"] = new_name
+
+        # Delete old, save new
+        del_result, del_code = delete_message_by_name(original_name)
+        if del_code not in (200, 204):
+            # Log but continue — might still work
+            app.logger.warning(f"Delete before update returned {del_code}: {del_result}")
+
+        save_result, save_code = save_message_obj(msg)
+        return jsonify({"result": save_result, "status": save_code, "message": msg}), save_code
+
+    except requests.exceptions.ConnectionError:
+        return jsonify({"error": "Cannot reach sign"}), 503
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/messages/toggle", methods=["POST"])
+def api_toggle_message():
+    body = request.json or {}
+    name = body.get("name")
+    enabled = body.get("enabled")
+    if name is None or enabled is None:
+        return jsonify({"error": "name and enabled required"}), 400
+    try:
+        msgs = get_messages()
+        msg = next((m for m in msgs if m.get("Name") == name), None)
+        if msg is None:
+            return jsonify({"error": f"Message '{name}' not found"}), 404
+        msg = copy.deepcopy(msg)
+        msg["CurrentSchedule"]["Enabled"] = enabled
+
+        # Same delete-then-save strategy
+        delete_message_by_name(name)
+        result, code = save_message_obj(msg)
+        return jsonify({"result": result, "status": code, "enabled": enabled}), code
     except requests.exceptions.ConnectionError:
         return jsonify({"error": "Cannot reach sign"}), 503
     except Exception as e:
@@ -162,9 +232,12 @@ def api_update_message():
 
 @app.route("/api/messages/delete", methods=["POST"])
 def api_delete_message():
-    payload = request.json or {}
-    text, code = sign_post("/ECCB/deletemessage.php", data=payload)
-    return jsonify({"result": text, "status": code}), code
+    body = request.json or {}
+    name = body.get("Name") or body.get("name")
+    if not name:
+        return jsonify({"error": "Name required"}), 400
+    result, code = delete_message_by_name(name)
+    return jsonify({"result": result, "status": code}), code
 
 @app.route("/api/messages/reorder", methods=["POST"])
 def api_reorder_messages():
@@ -172,38 +245,32 @@ def api_reorder_messages():
     text, code = sign_post("/ECCB/updateMessageSchedulePosition.php", data=payload)
     return jsonify({"result": text, "status": code}), code
 
-# Datetime sync
 @app.route("/api/sync-time", methods=["POST"])
 def api_sync_time():
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
     text, code = sign_put(f"/daktronics/syscontrol/1.0/datetime?Time={now}")
     return jsonify({"result": text, "time_sent": now, "status": code}), code
 
-# Brightness
 @app.route("/api/brightness", methods=["POST"])
 def api_set_brightness():
     body = request.json or {}
     text, code = sign_put("/daktronics/syscontrol/1.0/configuration/output/0/dimming", data=body)
     return jsonify({"result": text, "status": code}), code
 
-# Settings
 @app.route("/api/settings", methods=["POST"])
 def api_update_settings():
-    global SIGN_IP, USERNAME, PASSWORD, BASE_URL, ECCB_URL, API_URL
+    global SIGN_IP, USERNAME, PASSWORD, BASE_URL
     body = request.json or {}
     SIGN_IP  = body.get("ip", SIGN_IP)
     USERNAME = body.get("username", USERNAME)
     PASSWORD = body.get("password", PASSWORD)
     BASE_URL = f"http://{SIGN_IP}"
-    ECCB_URL = f"{BASE_URL}/ECCB"
-    API_URL  = f"{BASE_URL}/daktronics/syscontrol/1.0"
     return jsonify({"ok": True, "ip": SIGN_IP, "username": USERNAME})
 
 @app.route("/api/settings", methods=["GET"])
 def api_get_settings():
     return jsonify({"ip": SIGN_IP, "username": USERNAME, "password": PASSWORD})
 
-# Raw proxy
 @app.route("/api/raw", methods=["POST"])
 def api_raw():
     body   = request.json or {}

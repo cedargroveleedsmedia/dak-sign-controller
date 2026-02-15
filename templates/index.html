@@ -292,6 +292,35 @@
       </div>
     </div>
 
+    <!-- Create New Message -->
+    <div class="card">
+      <div class="card-header"><span class="card-title">Create New Message</span></div>
+      <div class="card-body">
+        <div class="form-row"><label>Message Name</label><input type="text" id="new-msg-name" placeholder="e.g. Sunday Service"></div>
+        <div class="form-row"><label>Text (one line per row on sign)</label><textarea id="new-msg-text" placeholder="Line 1&#10;Line 2&#10;Line 3" style="min-height:90px;"></textarea></div>
+        <div class="form-grid">
+          <div class="form-row">
+            <label>Font Size</label>
+            <select id="new-msg-fontsize">
+              <option value="17.5">17.5pt — Small (4 lines)</option>
+              <option value="23" selected>23pt — Medium (3 lines)</option>
+              <option value="29">29pt — Large (2 lines)</option>
+              <option value="39">39pt — XL (1 line)</option>
+            </select>
+          </div>
+          <div class="form-row"><label>Hold Time (seconds)</label><input type="number" id="new-msg-hold" value="5" min="1" max="60"></div>
+        </div>
+        <div class="form-row">
+          <label style="display:flex;align-items:center;gap:8px;text-transform:none;font-size:11px;cursor:pointer;">
+            <input type="checkbox" id="new-msg-enabled" checked style="width:auto;"> Enable immediately
+          </label>
+        </div>
+        <button class="btn primary" onclick="createMessage()">&#43; Create Message</button>
+        <div id="create-result" style="margin-top:10px;font-size:11px;min-height:16px;"></div>
+      </div>
+    </div>
+    </div>
+
     <!-- BRIGHTNESS -->
     <div id="panel-brightness" class="panel">
       <div class="card">
@@ -414,6 +443,10 @@
       <button class="btn sm" onclick="closeModal()">✕ Close</button>
     </div>
     <div class="modal-body">
+      <div class="form-row" style="margin-bottom:4px;">
+        <label>Message Name</label>
+        <input type="text" id="modal-name" placeholder="Message name">
+      </div>
       <div id="modal-frames"></div>
       <div style="border-top:1px solid var(--border);padding-top:16px;">
         <div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:var(--text-dim);margin-bottom:10px;">Schedule</div>
@@ -677,6 +710,7 @@ async function toggleMessage(name, newEnabled, idx) {
 function openEdit(msg) {
   _editMsg = msg;
   document.getElementById('modal-title').textContent  = msg.Name;
+  document.getElementById('modal-name').value          = msg.Name;
   document.getElementById('modal-enabled').checked    = !!(msg.CurrentSchedule && msg.CurrentSchedule.Enabled);
   document.getElementById('modal-start').value        = (msg.CurrentSchedule && msg.CurrentSchedule.StartTime) || 'PT0H0M0S';
   document.getElementById('modal-end').value          = (msg.CurrentSchedule && msg.CurrentSchedule.EndTime)   || 'PT0H0M0S';
@@ -731,9 +765,10 @@ async function saveEdit() {
     Dow:       sched.Dow !== undefined ? sched.Dow : 127
   };
   log('Saving edits to "' + _editMsg.Name + '"...');
+  var newName = document.getElementById('modal-name').value.trim();
   var r = await api('/api/messages/update', {
     method: 'POST',
-    body: JSON.stringify({ name: _editMsg.Name, frames: frames, schedule: schedule })
+    body: JSON.stringify({ name: _editMsg.Name, newName: newName, frames: frames, schedule: schedule })
   });
   if (r.ok) {
     resultEl.textContent = '✓ Saved';
@@ -744,6 +779,33 @@ async function saveEdit() {
     resultEl.textContent = '✗ ' + (r.data.error || JSON.stringify(r.data));
     resultEl.style.color = 'var(--red)';
     log('Save failed: ' + (r.data.error || JSON.stringify(r.data)), 'err');
+  }
+}
+
+async function createMessage() {
+  var name     = document.getElementById('new-msg-name').value.trim();
+  var text     = document.getElementById('new-msg-text').value.trim();
+  var fontSize = document.getElementById('new-msg-fontsize').value;
+  var hold     = document.getElementById('new-msg-hold').value;
+  var enabled  = document.getElementById('new-msg-enabled').checked;
+  var resEl    = document.getElementById('create-result');
+  if (!name || !text) { resEl.innerHTML = '<span style="color:var(--red)">Name and text are required</span>'; return; }
+  resEl.innerHTML = '<span style="color:var(--text-dim)">Creating...</span>';
+  log('Creating message "' + name + '"...');
+  var holdStr = 'P0Y0M0DT0H0M' + hold + 'S';
+  var r = await api('/api/messages/create', {
+    method: 'POST',
+    body: JSON.stringify({ name: name, text: text, fontSize: parseFloat(fontSize), holdTime: holdStr, enabled: enabled })
+  });
+  if (r.ok) {
+    resEl.innerHTML = '<span style="color:var(--green)">&#10003; Created "' + name + '"</span>';
+    log('Message "' + name + '" created', 'ok');
+    document.getElementById('new-msg-name').value = '';
+    document.getElementById('new-msg-text').value = '';
+    loadMessages();
+  } else {
+    resEl.innerHTML = '<span style="color:var(--red)">&#10007; ' + (r.data.error || JSON.stringify(r.data)) + '</span>';
+    log('Create failed: ' + (r.data.error || JSON.stringify(r.data)), 'err');
   }
 }
 
