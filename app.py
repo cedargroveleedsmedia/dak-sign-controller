@@ -61,15 +61,29 @@ def get_messages():
 
 def save_message_obj(msg_obj):
     """POST a full message object to savemessage.php.
-    The ECCB expects the message as a JSON string in the 'Message' POST field.
-    Try both the wrapped form and direct JSON body."""
-    payload = json.dumps(msg_obj)
-    # Try form field 'Message' first (what the native UI uses)
-    r = requests.post(f"{BASE_URL}/ECCB/savemessage.php",
-                      auth=auth(),
-                      data={"Message": payload},
-                      timeout=60)
-    return r.text, r.status_code
+    The ECCB native UI sends JSON as raw request body with Content-Type application/json,
+    wrapped in a MessageRequest envelope: {"MessageRequest": <msg_obj>}
+    We try several formats in order until one works (non-empty response body).
+    """
+    candidates = [
+        # Format 1: raw JSON body — most likely based on ECCB REST pattern
+        dict(json=msg_obj),
+        # Format 2: wrapped envelope
+        dict(json={"MessageRequest": msg_obj}),
+        # Format 3: form field 'Message' as JSON string
+        dict(data={"Message": json.dumps(msg_obj)}),
+        # Format 4: form field 'message' lowercase
+        dict(data={"message": json.dumps(msg_obj)}),
+    ]
+    last_r = None
+    for kwargs in candidates:
+        r = requests.post(f"{BASE_URL}/ECCB/savemessage.php",
+                          auth=auth(), timeout=60, **kwargs)
+        last_r = r
+        app.logger.info(f"savemessage attempt kwargs={list(kwargs.keys())} -> {r.status_code}: {r.text[:200]}")
+        if r.status_code == 200 and r.text.strip():
+            return r.text, r.status_code
+    return last_r.text, last_r.status_code
 
 def delete_message_by_name(name):
     """Delete a message by name."""
@@ -238,6 +252,47 @@ def api_delete_message():
         return jsonify({"error": "Name required"}), 400
     result, code = delete_message_by_name(name)
     return jsonify({"result": result, "status": code}), code
+
+@app.route("/api/messages/probe", methods=["POST"])
+def api_probe_save():
+    """Debug endpoint: try all POST formats against savemessage.php and return all results."""
+    body = request.json or {}
+    name = body.get("name")
+    if not name:
+        return jsonify({"error": "name required"}), 400
+    try:
+        msgs = get_messages()
+        msg = next((m for m in msgs if m.get("Name") == name), None)
+        if not msg:
+            return jsonify({"error": f"'{name}' not found"}), 404
+        msg = copy.deepcopy(msg)
+        results = []
+        formats = [
+            ("raw_json",       dict(json=msg)),
+            ("envelope_json",  dict(json={"MessageRequest": msg})),
+            ("form_Message",   dict(data={"Message": json.dumps(msg)})),
+            ("form_message_lc",dict(data={"message": json.dumps(msg)})),
+            ("delete_test",    None),  # sentinel
+        ]
+        for label, kwargs in formats:
+            if kwargs is None:
+                # test delete
+                r = requests.post(f"{BASE_URL}/ECCB/deletemessage.php",
+                                  auth=auth(), data={"Name": name}, timeout=60)
+                results.append({"format": "delete_Name_field", "status": r.status_code, "body": r.text[:300]})
+                r2 = requests.post(f"{BASE_URL}/ECCB/deletemessage.php",
+                                  auth=auth(), data={"name": name}, timeout=60)
+                results.append({"format": "delete_name_lc_field", "status": r2.status_code, "body": r2.text[:300]})
+            else:
+                r = requests.post(f"{BASE_URL}/ECCB/savemessage.php",
+                                  auth=auth(), timeout=60, **kwargs)
+                results.append({"format": label, "status": r.status_code, "body": r.text[:300]})
+        # Check final message count
+        msgs_after = get_messages()
+        return jsonify({"results": results, "msg_count_after": len(msgs_after),
+                        "msg_names_after": [m.get("Name") for m in msgs_after]}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/api/messages/reorder", methods=["POST"])
 def api_reorder_messages():

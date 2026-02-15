@@ -399,6 +399,13 @@
             <button class="btn sm" onclick="quickGet('/daktronics/syscontrol/1.0/configuration/output/0/dimming')">Dimming</button>
             <button class="btn sm" onclick="quickGet('/ECCB/getmessagelist.php')">Messages</button>
           </div>
+          <hr class="divider">
+          <div style="font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-dim);margin-bottom:8px;">Debug</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <input type="text" id="probe-name" placeholder="Message name to probe" style="flex:1;min-width:160px;">
+            <button class="btn sm" onclick="probeMessage()">&#128270; Probe Save Formats</button>
+          </div>
+          <div id="probe-out" class="json-block" style="min-height:60px;margin-top:10px;display:none;"></div>
         </div>
       </div>
     </div>
@@ -867,6 +874,19 @@ function quickGet(path) {
   document.getElementById('raw-method').value = 'GET';
   document.getElementById('raw-path').value = path;
   sendRaw();
+}
+
+async function probeMessage() {
+  var name = document.getElementById('probe-name').value.trim();
+  if (!name) { log('Enter a message name to probe', 'err'); return; }
+  log('Probing save formats for "' + name + '"...');
+  var outEl = document.getElementById('probe-out');
+  outEl.style.display = 'block';
+  outEl.innerHTML = 'Probing... (this will take ~30s)';
+  var r = await api('/api/messages/probe', { method:'POST', body: JSON.stringify({name: name}) });
+  outEl.innerHTML = highlight(r.data);
+  if (r.ok) log('Probe complete — check results', 'ok');
+  else log('Probe failed: ' + (r.data.error || ''), 'err');
 }
 
 async function sendRaw() {
