@@ -433,5 +433,125 @@ def api_raw():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
+@app.route("/diag")
+def api_diag():
+    """Hit /diag in a browser for a full readable diagnostic of sign connectivity and save/delete formats."""
+    results = []
+
+    def test(label, fn):
+        try:
+            result = fn()
+            results.append({"label": label, "ok": True, "result": result})
+        except Exception as e:
+            results.append({"label": label, "ok": False, "result": str(e)})
+
+    # 1. Basic connectivity
+    test("GET getmessagelist.php", lambda: (
+        lambda r: {"status": r.status_code, "bytes": len(r.content), "bom": r.content[:6].hex()}
+    )(requests.get(f"{BASE_URL}/ECCB/getmessagelist.php", auth=HTTPBasicAuth(USERNAME, PASSWORD), timeout=30)))
+
+    # 2. Get first real message name
+    msg_name = None
+    try:
+        r = requests.get(f"{BASE_URL}/ECCB/getmessagelist.php", auth=HTTPBasicAuth(USERNAME, PASSWORD), timeout=30)
+        raw = strip_bom(r.content)
+        msgs = json.loads(raw).get("Messages", [])
+        real = [m for m in msgs if m.get("Name","").strip()]
+        if real:
+            msg_name = real[-1]["Name"]  # use last (least important)
+            msg_obj = real[-1]
+    except Exception as e:
+        results.append({"label": "parse messages", "ok": False, "result": str(e)})
+
+    results.append({"label": "test message", "ok": bool(msg_name), "result": msg_name or "none found"})
+
+    if msg_name and msg_obj:
+        msg_json = json.dumps(msg_obj)
+        headers_xhr = {
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": f"{BASE_URL}/ECCB/EditMessage.html",
+            "Origin": BASE_URL,
+        }
+        auth = HTTPBasicAuth(USERNAME, PASSWORD)
+
+        # 3. Test every save format - look for 34 or 45 byte response
+        for field in ["message", "Message", "data", "json", "msg", "content", "payload"]:
+            def do_save(f=field):
+                r = requests.post(f"{BASE_URL}/ECCB/savemessage.php",
+                    data={f: msg_json}, headers=headers_xhr, auth=auth, timeout=30)
+                body = strip_bom(r.content)
+                return {"status": r.status_code, "bytes": len(r.content), "body": body[:80] or "(bom-only)"}
+            test(f"save form field='{field}'", do_save)
+
+        # 4. Raw JSON body
+        def do_raw():
+            r = requests.post(f"{BASE_URL}/ECCB/savemessage.php",
+                json=msg_obj, headers=headers_xhr, auth=auth, timeout=30)
+            body = strip_bom(r.content)
+            return {"status": r.status_code, "bytes": len(r.content), "body": body[:80] or "(bom-only)"}
+        test("save raw JSON body", do_raw)
+
+        # 5. Delete via GET
+        def do_del_get():
+            r = requests.get(f"{BASE_URL}/ECCB/deletemessage.php",
+                params={"Name": msg_name}, headers=headers_xhr, auth=auth, timeout=30)
+            return {"status": r.status_code, "bytes": len(r.content), "body": strip_bom(r.content)[:80] or "(bom-only)"}
+        test("delete GET ?Name=", do_del_get)
+
+        # 6. Delete via POST form
+        def do_del_post():
+            r = requests.post(f"{BASE_URL}/ECCB/deletemessage.php",
+                data={"Name": msg_name}, headers=headers_xhr, auth=auth, timeout=30)
+            return {"status": r.status_code, "bytes": len(r.content), "body": strip_bom(r.content)[:80] or "(bom-only)"}
+        test("delete POST form", do_del_post)
+
+        # 7. Delete with exact headers a real Chrome browser sends (no X-Requested-With)
+        def do_del_browser():
+            browser_headers = {
+                "Accept": "application/json, text/javascript, */*; q=0.01",
+                "Referer": f"{BASE_URL}/ECCB/EditMessage.html",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/144.0.0.0 Safari/537.36",
+            }
+            r = requests.post(f"{BASE_URL}/ECCB/deletemessage.php",
+                data={"Name": msg_name}, headers=browser_headers, auth=auth, timeout=30)
+            return {"status": r.status_code, "bytes": len(r.content), "body": strip_bom(r.content)[:80] or "(bom-only)"}
+        test("delete POST browser-headers", do_del_browser)
+
+        # 8. Check what our Flask server IP appears as
+        try:
+            import socket
+            local_ip = socket.gethostbyname(socket.gethostname())
+            results.append({"label": "flask server IP", "ok": True, "result": local_ip})
+        except:
+            pass
+
+    # Render as readable HTML
+    html = ["<!DOCTYPE html><html><head><meta charset=utf-8>",
+            "<title>Dak Diag</title>",
+            "<style>body{font:13px/1.6 monospace;background:#0d0d0d;color:#ccc;padding:24px}",
+            "h1{color:#00ff88;margin-bottom:16px}",
+            ".r{display:flex;gap:16px;padding:8px 12px;border-bottom:1px solid #1a1a1a;align-items:flex-start}",
+            ".ok{color:#00ff88}.fail{color:#ff4444}",
+            ".label{min-width:280px;color:#aaa}",
+            ".val{color:#fff;word-break:break-all}",
+            "pre{background:#111;padding:12px;border-radius:4px;overflow:auto}",
+            "</style></head><body>",
+            "<h1>DAK SIGN DIAGNOSTIC</h1>",
+            f"<p style='color:#666;margin-bottom:16px'>Sign: {BASE_URL} &nbsp; User: {USERNAME}</p>",
+            "<div>"]
+
+    for r in results:
+        icon = "✓" if r["ok"] else "✗"
+        cls = "ok" if r["ok"] else "fail"
+        val = json.dumps(r["result"], indent=2) if isinstance(r["result"], dict) else str(r["result"])
+        html.append(f'<div class="r"><span class="label {cls}">{icon} {r["label"]}</span>'
+                    f'<span class="val">{val}</span></div>')
+
+    html.append("</div></body></html>")
+    from flask import Response
+    return Response("".join(html), mimetype="text/html")
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
