@@ -1,0 +1,16 @@
+[Unit]
+Description=DAK Sign Controller
+After=network.target
+
+[Service]
+Type=simple
+User=YOUR_USERNAME
+WorkingDirectory=/opt/dak-sign-controller
+ExecStart=/opt/dak-sign-controller/venv/bin/python app.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
