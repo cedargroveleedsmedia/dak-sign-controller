@@ -107,24 +107,53 @@ def get_messages():
 
 
 def save_message_obj(msg_obj):
-    """POST message as JSON. Retries once after re-login if we get a blank response."""
+    """POST message to savemessage.php.
+    
+    The native UI uses jQuery $.ajax with form-urlencoded encoding,
+    sending the serialized message JSON as the value of a form field.
+    We try the most likely field names in order.
+    A successful save returns exactly 34 bytes: {"Status":"OK","Message":"Saved"}
+    """
+    msg_json = json.dumps(msg_obj)
+    headers = {
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": f"{BASE_URL}/ECCB/EditMessage.html",
+        "Origin": BASE_URL,
+    }
+    # Field name candidates based on jQuery/KO pattern in Daktronics firmware
+    field_names = ["message", "Message", "data", "json", "msg"]
+
     for attempt in range(2):
         s = get_session()
-        r = s.post(
-            f"{BASE_URL}/ECCB/savemessage.php",
-            json=msg_obj,
-            headers={
-                "X-Requested-With": "XMLHttpRequest",
-                "Referer": f"{BASE_URL}/ECCB/EditMessage.html",
-            },
-            timeout=60,
-        )
-        app.logger.info(f"savemessage attempt {attempt+1} -> {r.status_code}: {r.content[:200]}")
-        raw = strip_bom(r.content)
-        if r.status_code == 200 and raw:
-            return raw, r.status_code
-        # Blank response or error — session may have expired, re-login and retry
+        for field in field_names:
+            r = s.post(
+                f"{BASE_URL}/ECCB/savemessage.php",
+                data={field: msg_json},
+                headers=headers,
+                timeout=60,
+            )
+            raw = strip_bom(r.content)
+            app.logger.info(
+                f"savemessage field='{field}' attempt={attempt+1} "
+                f"status={r.status_code} body={raw[:100]!r}"
+            )
+            # 34-byte success: {"Status":"OK","Message":"Saved"}
+            if r.status_code == 200 and "OK" in raw:
+                return raw, r.status_code
+
+        # Nothing worked — session may be stale, re-login and retry once
         invalidate_session()
+
+    # Last resort: raw JSON body
+    s = get_session()
+    r = s.post(
+        f"{BASE_URL}/ECCB/savemessage.php",
+        json=msg_obj,
+        headers=headers,
+        timeout=60,
+    )
+    raw = strip_bom(r.content)
+    app.logger.info(f"savemessage raw-json fallback status={r.status_code} body={raw[:100]!r}")
     return raw, r.status_code
 
 
@@ -307,19 +336,30 @@ def api_probe_save():
         s   = get_session()
         results = []
 
-        # Test save as raw JSON
-        r = s.post(f"{BASE_URL}/ECCB/savemessage.php", json=msg,
-                   headers={"X-Requested-With": "XMLHttpRequest",
-                            "Referer": f"{BASE_URL}/ECCB/EditMessage.html"}, timeout=60)
-        results.append({"format": "json_body+xhr_header", "status": r.status_code,
-                        "body": strip_bom(r.content) or "(empty)", "cookies": dict(s.cookies)})
+        headers = {
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": f"{BASE_URL}/ECCB/EditMessage.html",
+            "Origin": BASE_URL,
+        }
+        msg_json = json.dumps(msg)
+        results.append({"info": "session_cookies", "cookies": dict(s.cookies)})
 
-        # Test delete
-        r2 = s.post(f"{BASE_URL}/ECCB/deletemessage.php", data={"Name": name},
-                    headers={"X-Requested-With": "XMLHttpRequest",
-                             "Referer": f"{BASE_URL}/ECCB/EditMessage.html"}, timeout=60)
-        results.append({"format": "delete_form_post", "status": r2.status_code,
-                        "body": strip_bom(r2.content) or "(empty)"})
+        for field in ["message", "Message", "data", "json", "msg"]:
+            r = s.post(f"{BASE_URL}/ECCB/savemessage.php",
+                       data={field: msg_json}, headers=headers, timeout=60)
+            body = strip_bom(r.content)
+            results.append({"format": f"form_{field}", "status": r.status_code,
+                            "body": body or "(empty-BOM-only)"})
+
+        r = s.post(f"{BASE_URL}/ECCB/savemessage.php",
+                   json=msg, headers=headers, timeout=60)
+        results.append({"format": "raw_json", "status": r.status_code,
+                        "body": strip_bom(r.content) or "(empty-BOM-only)"})
+
+        r2 = s.post(f"{BASE_URL}/ECCB/deletemessage.php",
+                    data={"Name": name}, headers=headers, timeout=60)
+        results.append({"format": "delete_Name", "status": r2.status_code,
+                        "body": strip_bom(r2.content) or "(empty-BOM-only)"})
 
         msgs_after = get_messages()
         return jsonify({
