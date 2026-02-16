@@ -473,7 +473,9 @@ function openEdit(i) {
   var frames  = _cur.Frames || [];
   var firstFrame = frames[0] || {};
   var lines   = (firstFrame.Lines || []).map(function(l){ return l.Text || ''; });
-  var lineCount = Math.max(lines.length, 1);
+  // Pre-select template by non-empty line count; blank trailing lines don't count
+  var nonEmpty  = lines.filter(function(t){ return t.trim() !== ''; }).length;
+  var lineCount = Math.max(nonEmpty || lines.length, 1);
 
   var h = '';
 
@@ -505,7 +507,8 @@ function openEdit(i) {
   buildTemplatePicker('e-tpl-grid', lineCount, function(n) {
     buildFrameInputs('e-frames', n, lines);
   });
-  buildFrameInputs('e-frames', lineCount, lines);
+  // Show all stored lines initially (including blanks), not just nonEmpty count
+  buildFrameInputs('e-frames', lines.length || 1, lines);
 
   open_('edit-modal');
 }
