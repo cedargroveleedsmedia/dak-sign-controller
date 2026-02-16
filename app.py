@@ -9,7 +9,7 @@ import threading
 app = Flask(__name__)
 
 # --- Config ---
-SIGN_IP  = "192.168.1.51"
+SIGN_IP  = "192.168.0.2"
 USERNAME = "Dak"
 PASSWORD = "DakPassword"
 BASE_URL = f"http://{SIGN_IP}"
@@ -108,81 +108,57 @@ def get_messages():
 
 def save_message_obj(msg_obj):
     """POST message to savemessage.php.
-    
-    The native UI uses jQuery $.ajax with form-urlencoded encoding,
-    sending the serialized message JSON as the value of a form field.
-    We try the most likely field names in order.
-    A successful save returns exactly 34 bytes: {"Status":"OK","Message":"Saved"}
+
+    Confirmed from Fiddler capture of native UI:
+    - Content-Type: application/x-www-form-urlencoded
+    - Field name: 'json'
+    - Value: JSON-serialized message object
+    - Success response: BOM-only (0 bytes after stripping BOM) with HTTP 200
+      (BOM-only IS the success indicator — the sign does not return {"Status":"OK"})
     """
     msg_json = json.dumps(msg_obj)
     headers = {
         "X-Requested-With": "XMLHttpRequest",
         "Referer": f"{BASE_URL}/ECCB/EditMessage.html",
         "Origin": BASE_URL,
+        "Accept": "application/json, text/javascript, */*; q=0.01",
     }
-    # Field name candidates based on jQuery/KO pattern in Daktronics firmware
-    field_names = ["message", "Message", "data", "json", "msg"]
-
-    for attempt in range(2):
-        s = get_session()
-        for field in field_names:
-            r = s.post(
-                f"{BASE_URL}/ECCB/savemessage.php",
-                data={field: msg_json},
-                headers=headers,
-                timeout=60,
-            )
-            raw = strip_bom(r.content)
-            app.logger.info(
-                f"savemessage field='{field}' attempt={attempt+1} "
-                f"status={r.status_code} body={raw[:100]!r}"
-            )
-            # 34-byte success: {"Status":"OK","Message":"Saved"}
-            if r.status_code == 200 and "OK" in raw:
-                return raw, r.status_code
-
-        # Nothing worked — session may be stale, re-login and retry once
-        invalidate_session()
-
-    # Last resort: raw JSON body
     s = get_session()
     r = s.post(
         f"{BASE_URL}/ECCB/savemessage.php",
-        json=msg_obj,
+        data={"json": msg_json},
         headers=headers,
         timeout=60,
     )
-    raw = strip_bom(r.content)
-    app.logger.info(f"savemessage raw-json fallback status={r.status_code} body={raw[:100]!r}")
-    return raw, r.status_code
+    app.logger.info(f"savemessage status={r.status_code} bytes={len(r.content)}")
+    return strip_bom(r.content), r.status_code
 
 
 def delete_message_by_name(name):
-    """Delete via GET with query param — nginx on the sign only allows GET on this endpoint."""
+    """Delete via POST to deletemessage.php.
+
+    Confirmed from Fiddler capture of native UI:
+    - Method: POST
+    - Content-Type: application/x-www-form-urlencoded
+    - Field name: 'Message'
+    - Value: 'name.vmpl'  (filename with .vmpl extension, not just the name)
+    - Success response: BOM-only with HTTP 200
+    """
     s = get_session()
     headers = {
         "X-Requested-With": "XMLHttpRequest",
         "Referer": f"{BASE_URL}/ECCB/EditMessage.html",
+        "Accept": "*/*",
     }
-    # Try GET first (most likely based on 405 response to POST)
-    r = s.get(
+    filename = f"{name}.vmpl"
+    r = s.post(
         f"{BASE_URL}/ECCB/deletemessage.php",
-        params={"Name": name},
+        data={"Message": filename},
         headers=headers,
         timeout=60,
     )
-    app.logger.info(f"deletemessage GET '{name}' -> {r.status_code}: {r.content[:200]}")
-    if r.status_code in (200, 404):
-        return r.text, r.status_code
-    # Fallback: POST just in case
-    r2 = s.post(
-        f"{BASE_URL}/ECCB/deletemessage.php",
-        data={"Name": name},
-        headers=headers,
-        timeout=60,
-    )
-    app.logger.info(f"deletemessage POST fallback '{name}' -> {r2.status_code}: {r2.content[:200]}")
-    return r2.text, r2.status_code
+    app.logger.info(f"deletemessage POST '{filename}' -> {r.status_code}: {r.content[:200]}")
+    return strip_bom(r.content), r.status_code
 
 
 # ─── Routes ────────────────────────────────────────────────────────────────────
