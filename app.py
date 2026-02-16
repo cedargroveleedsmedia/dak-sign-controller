@@ -194,26 +194,34 @@ def api_messages():
 
 @app.route("/api/messages/create", methods=["POST"])
 def api_create_message():
-    body      = request.json or {}
-    name      = body.get("name", "").strip()
-    text      = body.get("text", "").strip()
-    font      = body.get("font", "dak_eccb_black-webfont.ttf")
-    font_size = float(body.get("fontSize", 17.5))
-    hold      = body.get("holdTime", "P0Y0M0DT0H0M5S")
-    if not name or not text:
-        return jsonify({"error": "name and text are required"}), 400
+    body       = request.json or {}
+    name       = body.get("name", "").strip()
+    text       = body.get("text", "").strip()
+    extra      = body.get("extraLines", [])          # additional line texts for multi-line
+    font       = body.get("font", "dak_eccb_black-webfont.ttf")
+    font_size  = float(body.get("fontSize", 17.5))
+    hold       = body.get("holdTime", "P0Y0M0DT0H0M5S")
+    sched_in   = body.get("schedule", {})
+    if not name:
+        return jsonify({"error": "name is required"}), 400
+
+    # Build lines list: first line from text, rest from extraLines
+    all_lines = [text] + [l for l in extra if isinstance(l, str)]
+    all_lines = [l for l in all_lines if l.strip()] or [text or ""]
+
     msg = {
         "Name": name, "Height": 32, "Width": 72, "IsPermanent": False,
         "Frames": [{
             "HoldTime": hold,
-            "Lines": [{"Font": font, "FontSize": font_size, "Text": line}
-                      for line in text.splitlines() if line]
-                     or [{"Font": font, "FontSize": font_size, "Text": text}],
+            "Lines": [{"Font": font, "FontSize": font_size, "Text": l} for l in all_lines],
             "LineSpacing": 0,
         }],
         "CurrentSchedule": {
-            "Enabled": body.get("enabled", True),
-            "StartTime": "PT0H0M0S", "EndTime": "PT0H0M0S", "Dow": 127,
+            "Enabled":   body.get("enabled", True),
+            "StartTime": sched_in.get("StartTime", "PT0H0M0S"),
+            "EndTime":   sched_in.get("EndTime",   "PT0H0M0S"),
+            "Dow":       sched_in.get("Dow", 127),
+            "IsAllDay":  sched_in.get("IsAllDay", True),
         },
     }
     try:
@@ -235,13 +243,23 @@ def api_update_message():
             return jsonify({"error": f"Message '{original_name}' not found"}), 404
         msg = copy.deepcopy(msg)
 
-        # Apply frame text edits
+        # Apply frame text edits — supports line count changes from template picker
         for fu in (body.get("frames") or []):
             fi = fu.get("frameIndex", 0)
             if fi < len(msg["Frames"]):
-                for li, text in enumerate(fu.get("lines", [])):
-                    if li < len(msg["Frames"][fi]["Lines"]):
-                        msg["Frames"][fi]["Lines"][li]["Text"] = text
+                new_lines = fu.get("lines", [])
+                frame     = msg["Frames"][fi]
+                font      = (frame["Lines"][0].get("Font", "dak_eccb_black-webfont.ttf")
+                             if frame.get("Lines") else "dak_eccb_black-webfont.ttf")
+                font_size = (frame["Lines"][0].get("FontSize", 17.5)
+                             if frame.get("Lines") else 17.5)
+                if len(new_lines) != len(frame.get("Lines", [])):
+                    # Line count changed — rebuild lines
+                    frame["Lines"] = [{"Font": font, "FontSize": font_size, "Text": t}
+                                      for t in new_lines]
+                else:
+                    for li, text in enumerate(new_lines):
+                        frame["Lines"][li]["Text"] = text
 
         # Apply schedule changes
         if body.get("schedule") is not None:
