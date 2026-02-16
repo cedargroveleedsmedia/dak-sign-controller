@@ -1,4 +1,4 @@
 flask
 requests
-flask-dance
 flask-login
+authlib
