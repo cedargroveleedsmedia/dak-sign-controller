@@ -140,14 +140,43 @@ def init_auth(app):
     os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "0")
 
     # Google OAuth blueprint
+    # Flask-Dance callback is at /oauth/google/authorized (must match Google Cloud Console)
     google_bp = make_google_blueprint(
         client_id     = os.environ.get("GOOGLE_CLIENT_ID",     ""),
         client_secret = os.environ.get("GOOGLE_CLIENT_SECRET", ""),
         scope         = ["openid", "https://www.googleapis.com/auth/userinfo.email",
                          "https://www.googleapis.com/auth/userinfo.profile"],
-        redirect_to   = "google_authorized",
+        redirect_to   = "index",
     )
     app.register_blueprint(google_bp, url_prefix="/oauth")
+
+    # Handle the OAuth callback via flask-dance signal
+    from flask_dance.consumer import oauth_authorized
+    from flask import flash
+
+    @oauth_authorized.connect_via(google_bp)
+    def google_logged_in(blueprint, token):
+        if not token:
+            return redirect(url_for("login", error="Login failed. Please try again."))
+
+        resp = blueprint.session.get("/oauth2/v2/userinfo")
+        if not resp.ok:
+            return redirect(url_for("login", error="Could not fetch your Google profile."))
+
+        info    = resp.json()
+        email   = info.get("email", "")
+        name    = info.get("name", email)
+        picture = info.get("picture", "")
+        domain  = email.split("@")[-1].lower() if "@" in email else ""
+
+        if domain not in ALLOWED_DOMAINS:
+            logout_user()
+            session["denied_email"] = email
+            return False  # cancel token storage
+
+        user = get_or_create_user(email, name, picture)
+        login_user(user, remember=True)
+        return False  # we handled it, don't store token
 
     # Flask-Login setup
     login_manager = LoginManager()
@@ -172,33 +201,16 @@ def init_auth(app):
         session.clear()
         return redirect(url_for("login"))
 
-    @app.route("/google/authorized")
-    def google_authorized():
-        if not google.authorized:
-            return redirect(url_for("google.login"))
-
-        resp = google.get("/oauth2/v2/userinfo")
-        if not resp.ok:
-            return redirect(url_for("login", error="Could not fetch your Google profile. Please try again."))
-
-        info    = resp.json()
-        email   = info.get("email", "")
-        name    = info.get("name", email)
-        picture = info.get("picture", "")
-        domain  = email.split("@")[-1].lower() if "@" in email else ""
-
-        if domain not in ALLOWED_DOMAINS:
-            return render_template_string(DENIED_HTML, email=email)
-
-        user = get_or_create_user(email, name, picture)
-        login_user(user, remember=True)
-        return redirect(url_for("index"))
+    @app.route("/denied")
+    def denied():
+        email = session.pop("denied_email", "your account")
+        return render_template_string(DENIED_HTML, email=email)
 
     # ── Protect all routes ────────────────────────────────────────
 
     @app.before_request
     def require_login():
-        public = {"login", "logout", "google_authorized",
+        public = {"login", "logout", "denied",
                   "google.login", "google.authorized", "static"}
         if request.endpoint in public:
             return
