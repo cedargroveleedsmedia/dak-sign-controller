@@ -9,7 +9,7 @@ import threading
 app = Flask(__name__)
 
 # --- Config ---
-SIGN_IP  = "192.168.0.2"
+SIGN_IP  = "192.168.1.51"
 USERNAME = "Dak"
 PASSWORD = "DakPassword"
 BASE_URL = f"http://{SIGN_IP}"
