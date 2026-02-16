@@ -142,12 +142,14 @@ def init_auth(app):
 
     # Google OAuth blueprint
     # Flask-Dance callback is at /oauth/google/authorized (must match Google Cloud Console)
+    # redirect_url is hardcoded to force https — reverse proxy strips the scheme header
     google_bp = make_google_blueprint(
         client_id     = os.environ.get("GOOGLE_CLIENT_ID",     ""),
         client_secret = os.environ.get("GOOGLE_CLIENT_SECRET", ""),
         scope         = ["openid", "https://www.googleapis.com/auth/userinfo.email",
                          "https://www.googleapis.com/auth/userinfo.profile"],
         redirect_to   = "index",
+        redirect_url  = "https://dak.cedargroveleedsmedia.org/oauth/google/authorized",
     )
     app.register_blueprint(google_bp, url_prefix="/oauth")
 
