@@ -8,6 +8,10 @@ import threading
 
 app = Flask(__name__)
 
+# Google OAuth — must be initialised before any routes
+from auth import init_auth
+init_auth(app)
+
 # --- Config ---
 SIGN_IP  = "192.168.1.51"
 USERNAME = "Dak"
@@ -548,4 +552,4 @@ def api_diag():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=False)
