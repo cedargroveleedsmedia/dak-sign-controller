@@ -8,6 +8,10 @@ import threading
 
 app = Flask(__name__)
 
+# Tell Flask it's behind an HTTPS reverse proxy so OAuth redirect URIs use https://
+from werkzeug.middleware.proxy_fix import ProxyFix
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+
 # Google OAuth — must be initialised before any routes
 from auth import init_auth
 init_auth(app)

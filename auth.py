@@ -130,14 +130,15 @@ def init_auth(app):
 
     # Secret key — override with env var in production
     app.secret_key = os.environ.get("SECRET_KEY", "change-me-in-production-use-env-var")
-    app.config["REMEMBER_COOKIE_DURATION"] = timedelta(days=SESSION_DAYS)
-    app.config["REMEMBER_COOKIE_SECURE"]   = True   # HTTPS only
-    app.config["REMEMBER_COOKIE_HTTPONLY"] = True
-    app.config["SESSION_COOKIE_SECURE"]    = True
-    app.config["SESSION_COOKIE_HTTPONLY"]  = True
+    app.config["REMEMBER_COOKIE_DURATION"]  = timedelta(days=SESSION_DAYS)
+    app.config["REMEMBER_COOKIE_SECURE"]    = True
+    app.config["REMEMBER_COOKIE_HTTPONLY"]  = True
+    app.config["SESSION_COOKIE_SECURE"]     = True
+    app.config["SESSION_COOKIE_HTTPONLY"]   = True
+    app.config["PREFERRED_URL_SCHEME"]      = "https"
 
-    # Allow OAuth over HTTP on localhost only
-    os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "0")
+    # Force https scheme for OAuth redirect URI (reverse proxy strips it)
+    os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "0"
 
     # Google OAuth blueprint
     # Flask-Dance callback is at /oauth/google/authorized (must match Google Cloud Console)
