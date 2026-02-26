@@ -223,14 +223,14 @@ def api_create_message():
         "Height": 32,
         "Width": 72,
         "IsPermanent": False,
-        "DataSrc": "",
-        "DataFormat": "",
-        "DataCategory": "",
         "Frames": [{
             "HoldTime": hold,
             "Lines": [{"Font": font, "FontSize": font_size, "Text": l} for l in all_lines],
             "LineSpacing": 0,
         }],
+        "DataSrc": "",
+        "DataFormat": "",
+        "DataCategory": "",
         "CurrentSchedule": {
             "Enabled":   body.get("enabled", True),
             "StartTime": sched_in.get("StartTime", "PT0H0M0S"),
