@@ -107,7 +107,12 @@ def get_messages():
     r = s.get(f"{BASE_URL}/ECCB/getmessagelist.php", timeout=60)
     raw = strip_bom(r.content)
     data = json.loads(raw)
-    return data.get("Messages") or data.get("messages") or []
+    msgs = data.get("Messages") or data.get("messages") or []
+    # Log specific messages for comparison
+    for m in msgs:
+        if m.get("Name") in ("B2", "Elliot", "Recovery"):
+            print(f"[GET] {m['Name']}: {json.dumps(m, indent=2)}", flush=True)
+    return msgs
 
 
 def save_message_obj(msg_obj):
