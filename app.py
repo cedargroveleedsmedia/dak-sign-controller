@@ -212,6 +212,11 @@ def api_create_message():
     # Build lines list: first line from text, rest from extraLines
     all_lines = [text] + [l for l in extra if isinstance(l, str)]
     all_lines = [l for l in all_lines if l.strip()] or [text or ""]
+    app.logger.info(f"Create message '{name}': text={repr(text)}, extra={repr(extra)}, all_lines={repr(all_lines)}")
+
+    # Pad to 4 lines (sign expects exactly 4 lines per frame)
+    while len(all_lines) < 4:
+        all_lines.append("")
 
     msg = {
         "Name": name, "Height": 32, "Width": 72, "IsPermanent": False,
