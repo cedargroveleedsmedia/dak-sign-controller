@@ -233,6 +233,8 @@ def api_create_message():
             "IsAllDay":  sched_in.get("IsAllDay", True),
         },
     }
+    import json
+    print(f"[MSG] Sending to sign: {json.dumps(msg, indent=2)}", flush=True)
     try:
         result, code = save_message_obj(msg)
         return jsonify({"result": result, "status": code, "message": msg}), code
