@@ -292,6 +292,8 @@ def api_update_message():
         del_text, del_code = delete_message_by_name(original_name)
         app.logger.info(f"pre-update delete '{original_name}' -> {del_code}: {del_text[:100]}")
 
+        import json
+        print(f"[UPDATE] Sending to sign: {json.dumps(msg, indent=2)}", flush=True)
         save_result, save_code = save_message_obj(msg)
         return jsonify({"result": save_result, "status": save_code, "message": msg}), save_code
 
