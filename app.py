@@ -220,16 +220,15 @@ def api_create_message():
 
     msg = {
         "Name": name,
-        "signHeight": 32, "signWidth": 72,
-        "Height": 32, "Width": 72,
+        "Height": 32,
+        "Width": 72,
         "IsPermanent": False,
-        "DataSrc": "", "DataFormat": "", "DataCategory": "",
+        "DataSrc": "",
+        "DataFormat": "",
+        "DataCategory": "",
         "Frames": [{
             "HoldTime": hold,
-            "HoldTimeInSeconds": 5,
-            "FrameHeight": 32, "FrameWidth": 72,
-            "Lines": [{"Font": font, "FontSize": font_size, "PresentationFontSize": font_size, "Text": l} 
-                      for l in all_lines],
+            "Lines": [{"Font": font, "FontSize": font_size, "Text": l} for l in all_lines],
             "LineSpacing": 0,
         }],
         "CurrentSchedule": {
