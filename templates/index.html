@@ -357,10 +357,24 @@ async function loadMessages() {
 
     var summary = schedSummary(sched);
 
+    // Build preview from first frame lines
+    var previewHtml = '';
+    if (m.Frames && m.Frames[0] && m.Frames[0].Lines) {
+      var lines = m.Frames[0].Lines.filter(function(l){ return l.Text && l.Text.trim(); });
+      if (lines.length) {
+        previewHtml = '<div class="msg-preview">';
+        lines.forEach(function(line) {
+          previewHtml += '<div class="msg-preview-line">' + esc(line.Text) + '</div>';
+        });
+        previewHtml += '</div>';
+      }
+    }
+
     return '<div class="msg-row ' + rowCls + '" id="r'+i+'">' +
       '<div class="msg-info">' +
         '<div class="msg-name">' + esc(m.Name) + '</div>' +
         '<div class="msg-schedule">' + pillHtml + (summary ? '<span>' + esc(summary) + '</span>' : '') + '</div>' +
+        previewHtml +
       '</div>' +
       '<label class="toggle"><input type="checkbox"' + (enabled?' checked':'') + ' onchange="doToggle('+i+',this.checked)">' +
         '<span class="toggle-track"></span><span class="toggle-thumb"></span></label>' +
