@@ -264,7 +264,7 @@ def api_create_message():
     }
     
     import json
-    print(f"[CREATE] name={name!r} frames={len(frames)} total_lines={sum(len(f['Lines']) for f in frames)}", flush=True)    import json
+    print(f"[CREATE] name={name!r} frames={len(frames)} total_lines={sum(len(f['Lines']) for f in frames)}", flush=True)
     print(f"[CREATE] name={name!r} frames={len(frames)} total_lines={sum(len(f['Lines']) for f in frames)}", flush=True)
     print(f"[MSG] Sending to sign: {json.dumps(msg, indent=2)}", flush=True)
     
