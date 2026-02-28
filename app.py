@@ -222,8 +222,10 @@ def api_create_message():
     
     print(f"[CREATE] name={name!r} text={text!r} extra={extra!r} all_lines={all_lines!r}", flush=True)
     
-    # Match native UI structure EXACTLY - including PresentationFontSize, LineSpacing, CurrentFrame
-    font_size = int(body.get("fontSize", 23))  # Integer, not float
+    # Auto-calculate font size based on line count (native UI pattern)
+    font_size_map = {1: 39, 2: 29, 3: 23, 4: 17.5}
+    line_count = len(all_lines)
+    font_size = font_size_map.get(line_count, 17.5)
     presentation_size = font_size - 1  # PresentationFontSize is FontSize - 1
     
     frame = {
