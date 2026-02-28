@@ -342,6 +342,12 @@ def api_toggle_message():
             return jsonify({"error": f"Message '{name}' not found"}), 404
         msg = copy.deepcopy(msg)
         msg["CurrentSchedule"]["Enabled"] = enabled
+        # When enabling, restore Dow to all days if it was 0 (disabled state)
+        if enabled and msg["CurrentSchedule"].get("Dow") == 0:
+            msg["CurrentSchedule"]["Dow"] = 127
+        # When disabling, set Dow to 0
+        elif not enabled:
+            msg["CurrentSchedule"]["Dow"] = 0
         delete_message_by_name(name)
         result, code = save_message_obj(msg)
         return jsonify({"result": result, "status": code, "enabled": enabled}), code
