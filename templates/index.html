@@ -64,7 +64,9 @@
 
   .msg-info { flex: 1; min-width: 0; }
   .msg-name { font-weight: 600; font-size: 15px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 3px; }
-  .msg-preview { background: #000; border: 1px solid var(--border); border-radius: 4px; padding: 8px; margin-top: 8px; min-height: 60px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+  .msg-preview { background: #000; border: 1px solid var(--border); border-radius: 4px; padding: 8px; margin-top: 8px; min-height: 60px; display: flex; align-items: stretch; gap: 1px; overflow-x: auto; }
+  .msg-preview-frame { flex: 1; min-width: 80px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 4px; border-right: 1px solid #222; }
+  .msg-preview-frame:last-child { border-right: none; }
   .msg-preview-line { color: #ff4444; font-family: Arial, sans-serif; font-weight: 700; font-size: 11px; line-height: 1.2; text-align: center; white-space: nowrap; }
   
   /* Live preview editor */
@@ -371,22 +373,19 @@ async function loadMessages() {
 
     var summary = schedSummary(sched);
 
-    // Build preview showing all frames with page count
+    // Build preview showing all frames side-by-side
     var previewHtml = '';
     if (m.Frames && m.Frames.length) {
-      var totalFrames = m.Frames.length;
       previewHtml = '<div class="msg-preview">';
       
-      // Show first frame's text
-      var firstLines = m.Frames[0].Lines.filter(function(l){ return l.Text && l.Text.trim(); });
-      firstLines.forEach(function(line) {
-        previewHtml += '<div class="msg-preview-line">' + esc(line.Text) + '</div>';
+      m.Frames.forEach(function(frame, fi) {
+        previewHtml += '<div class="msg-preview-frame">';
+        var lines = frame.Lines.filter(function(l){ return l.Text && l.Text.trim(); });
+        lines.forEach(function(line) {
+          previewHtml += '<div class="msg-preview-line">' + esc(line.Text) + '</div>';
+        });
+        previewHtml += '</div>';
       });
-      
-      // Show page indicator if multi-frame
-      if (totalFrames > 1) {
-        previewHtml += '<div style="margin-top:8px;font-size:9px;color:#888">Page 1 of ' + totalFrames + '</div>';
-      }
       
       previewHtml += '</div>';
     }
@@ -554,18 +553,24 @@ function renderFrames(containerId) {
     }, 0);
   });
   
-  // Add frame button
-  var addBtn = document.createElement('button');
-  addBtn.type = 'button';
-  addBtn.className = 'btn-add-frame';
-  addBtn.innerHTML = '<span>+</span> Add Page';
-  addBtn.onclick = function() { addFrame(containerId); };
-  container.appendChild(addBtn);
+  // Add frame button (max 4 pages)
+  if (_frames.length < 4) {
+    var addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.className = 'btn-add-frame';
+    addBtn.innerHTML = '<span>+</span> Add Page';
+    addBtn.onclick = function() { addFrame(containerId); };
+    container.appendChild(addBtn);
+  }
   
   el.appendChild(container);
 }
 
 function addFrame(containerId) {
+  if (_frames.length >= 4) {
+    toast('Maximum 4 pages per message', 'err');
+    return;
+  }
   _frames.push({ lines: [], lineCount: 1 });
   renderFrames(containerId);
 }
