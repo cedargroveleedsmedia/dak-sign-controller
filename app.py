@@ -235,13 +235,9 @@ def api_create_message():
             
         line_count = len(lines)
         font_size = font_size_map.get(line_count, 17.5)
-        presentation_size = font_size - 1
         
         frame = {
             "HoldTime": hold,
-            "HoldTimeInSeconds": 5,
-            "FrameHeight": 32,
-            "FrameWidth": 72,
             "Lines": [{"Font": "dak_eccb_black-webfont.ttf", "FontSize": font_size, "Text": l} 
                       for l in lines],
             "LineSpacing": 0,
@@ -251,16 +247,12 @@ def api_create_message():
     if not frames:
         return jsonify({"error": "no valid frames with text"}), 400
     
+    # Minimal structure that works (no extra fields)
     msg = {
         "Name": name,
-        "signHeight": 32,
-        "signWidth": 72,
         "Height": 32,
         "Width": 72,
         "IsPermanent": False,
-        "DataSrc": "",
-        "DataFormat": "",
-        "DataCategory": "",
         "Frames": frames,
         "CurrentSchedule": {
             "Enabled":   body.get("enabled", True),
@@ -269,11 +261,10 @@ def api_create_message():
             "Dow":       sched_in.get("Dow", 127),
             "IsAllDay":  sched_in.get("IsAllDay", True),
         },
-        "CurrentFrameIndex": 0,
-        "CurrentFrame": frames[0],
     }
     
     import json
+    print(f"[CREATE] name={name!r} frames={len(frames)} total_lines={sum(len(f['Lines']) for f in frames)}", flush=True)    import json
     print(f"[CREATE] name={name!r} frames={len(frames)} total_lines={sum(len(f['Lines']) for f in frames)}", flush=True)
     print(f"[MSG] Sending to sign: {json.dumps(msg, indent=2)}", flush=True)
     
