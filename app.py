@@ -242,7 +242,7 @@ def api_create_message():
             "HoldTimeInSeconds": 5,
             "FrameHeight": 32,
             "FrameWidth": 72,
-            "Lines": [{"FontSize": font_size, "Text": l, "PresentationFontSize": presentation_size} 
+            "Lines": [{"Font": "dak_eccb_black-webfont.ttf", "FontSize": font_size, "Text": l} 
                       for l in lines],
             "LineSpacing": 0,
         }
