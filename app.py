@@ -244,7 +244,7 @@ def api_create_message():
             "FrameWidth": 72,
             "Lines": [{"FontSize": font_size, "Text": l, "PresentationFontSize": presentation_size} 
                       for l in lines],
-            "LineSpacing": 5,
+            "LineSpacing": 0,
         }
         frames.append(frame)
     
