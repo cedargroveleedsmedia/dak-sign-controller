@@ -13,7 +13,7 @@ from auth import init_auth
 init_auth(app)
 
 # --- Config ---
-SIGN_IP  = "192.168.1.51"
+SIGN_IP  = "192.168.48.6"
 USERNAME = "Dak"
 PASSWORD = "DakPassword"
 BASE_URL = f"http://{SIGN_IP}"
@@ -216,26 +216,37 @@ def api_create_message():
 
     # Build lines list: first line from text, rest from extraLines
     all_lines = [text] + [l for l in extra if isinstance(l, str)]
-    all_lines = [l for l in all_lines if l.strip()] or [text or ""]
+    all_lines = [l for l in all_lines if l.strip()]  # Only non-empty lines
+    if not all_lines:
+        all_lines = [text or ""]
+    
     print(f"[CREATE] name={name!r} text={text!r} extra={extra!r} all_lines={all_lines!r}", flush=True)
-
-    # Pad to 4 lines (sign expects exactly 4 lines per frame)
-    while len(all_lines) < 4:
-        all_lines.append("")
-
+    
+    # Match native UI structure EXACTLY - including PresentationFontSize, LineSpacing, CurrentFrame
+    font_size = int(body.get("fontSize", 23))  # Integer, not float
+    presentation_size = font_size - 1  # PresentationFontSize is FontSize - 1
+    
+    frame = {
+        "HoldTime": hold,
+        "HoldTimeInSeconds": 5,
+        "FrameHeight": 32,
+        "FrameWidth": 72,
+        "Lines": [{"FontSize": font_size, "Text": l, "PresentationFontSize": presentation_size} 
+                  for l in all_lines],
+        "LineSpacing": 5,  # Critical: native UI uses 5, not 0!
+    }
+    
     msg = {
         "Name": name,
+        "signHeight": 32,
+        "signWidth": 72,
         "Height": 32,
         "Width": 72,
         "IsPermanent": False,
-        "Frames": [{
-            "HoldTime": hold,
-            "Lines": [{"Font": font, "FontSize": font_size, "Text": l} for l in all_lines],
-            "LineSpacing": 0,
-        }],
         "DataSrc": "",
         "DataFormat": "",
         "DataCategory": "",
+        "Frames": [frame],
         "CurrentSchedule": {
             "Enabled":   body.get("enabled", True),
             "StartTime": sched_in.get("StartTime", "PT0H0M0S"),
@@ -243,6 +254,8 @@ def api_create_message():
             "Dow":       sched_in.get("Dow", 127),
             "IsAllDay":  sched_in.get("IsAllDay", True),
         },
+        "CurrentFrameIndex": 0,
+        "CurrentFrame": frame,  # Duplicate frame at top level
     }
     import json
     print(f"[MSG] Sending to sign: {json.dumps(msg, indent=2)}", flush=True)
