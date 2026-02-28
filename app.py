@@ -205,38 +205,51 @@ def api_messages():
 def api_create_message():
     body       = request.json or {}
     name       = body.get("name", "").strip()
-    text       = body.get("text", "").strip()
-    extra      = body.get("extraLines", [])          # additional line texts for multi-line
-    font       = body.get("font", "dak_eccb_black-webfont.ttf")
-    font_size  = float(body.get("fontSize", 17.5))
+    frames_in  = body.get("frames", [])  # New multi-frame structure
     hold       = body.get("holdTime", "P0Y0M0DT0H0M5S")
     sched_in   = body.get("schedule", {})
+    
     if not name:
         return jsonify({"error": "name is required"}), 400
-
-    # Build lines list: first line from text, rest from extraLines
-    all_lines = [text] + [l for l in extra if isinstance(l, str)]
-    all_lines = [l for l in all_lines if l.strip()]  # Only non-empty lines
-    if not all_lines:
-        all_lines = [text or ""]
     
-    print(f"[CREATE] name={name!r} text={text!r} extra={extra!r} all_lines={all_lines!r}", flush=True)
+    # Support both old format (text + extraLines) and new format (frames array)
+    if not frames_in and body.get("text"):
+        # Old format: single frame
+        text  = body.get("text", "").strip()
+        extra = body.get("extraLines", [])
+        all_lines = [text] + [l for l in extra if isinstance(l, str)]
+        all_lines = [l for l in all_lines if l.strip()]
+        frames_in = [{"lines": all_lines}] if all_lines else []
     
-    # Auto-calculate font size based on line count (native UI pattern)
+    if not frames_in:
+        return jsonify({"error": "at least one frame with text is required"}), 400
+    
+    # Build frames with auto font sizing
+    frames = []
     font_size_map = {1: 39, 2: 29, 3: 23, 4: 17.5}
-    line_count = len(all_lines)
-    font_size = font_size_map.get(line_count, 17.5)
-    presentation_size = font_size - 1  # PresentationFontSize is FontSize - 1
     
-    frame = {
-        "HoldTime": hold,
-        "HoldTimeInSeconds": 5,
-        "FrameHeight": 32,
-        "FrameWidth": 72,
-        "Lines": [{"FontSize": font_size, "Text": l, "PresentationFontSize": presentation_size} 
-                  for l in all_lines],
-        "LineSpacing": 5,  # Critical: native UI uses 5, not 0!
-    }
+    for frame_data in frames_in:
+        lines = [l for l in frame_data.get("lines", []) if isinstance(l, str) and l.strip()]
+        if not lines:
+            continue
+            
+        line_count = len(lines)
+        font_size = font_size_map.get(line_count, 17.5)
+        presentation_size = font_size - 1
+        
+        frame = {
+            "HoldTime": hold,
+            "HoldTimeInSeconds": 5,
+            "FrameHeight": 32,
+            "FrameWidth": 72,
+            "Lines": [{"FontSize": font_size, "Text": l, "PresentationFontSize": presentation_size} 
+                      for l in lines],
+            "LineSpacing": 5,
+        }
+        frames.append(frame)
+    
+    if not frames:
+        return jsonify({"error": "no valid frames with text"}), 400
     
     msg = {
         "Name": name,
@@ -248,7 +261,7 @@ def api_create_message():
         "DataSrc": "",
         "DataFormat": "",
         "DataCategory": "",
-        "Frames": [frame],
+        "Frames": frames,
         "CurrentSchedule": {
             "Enabled":   body.get("enabled", True),
             "StartTime": sched_in.get("StartTime", "PT0H0M0S"),
@@ -257,10 +270,13 @@ def api_create_message():
             "IsAllDay":  sched_in.get("IsAllDay", True),
         },
         "CurrentFrameIndex": 0,
-        "CurrentFrame": frame,  # Duplicate frame at top level
+        "CurrentFrame": frames[0],
     }
+    
     import json
+    print(f"[CREATE] name={name!r} frames={len(frames)} total_lines={sum(len(f['Lines']) for f in frames)}", flush=True)
     print(f"[MSG] Sending to sign: {json.dumps(msg, indent=2)}", flush=True)
+    
     try:
         result, code = save_message_obj(msg)
         return jsonify({"result": result, "status": code, "message": msg}), code

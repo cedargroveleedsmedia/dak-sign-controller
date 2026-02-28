@@ -71,6 +71,15 @@
   .preview-editor { background: #000; border: 1px solid var(--border); border-radius: 10px; padding: 20px; min-height: 180px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
   .preview-input { background: transparent; border: none; color: #ff4444; font-family: Arial, sans-serif; font-weight: 700; font-size: 18px; text-align: center; outline: none; width: 100%; padding: 4px; caret-color: #ff4444; }
   .preview-input::placeholder { color: rgba(255,68,68,0.3); }
+  
+  /* Frame management */
+  .frames-container { display: flex; flex-direction: column; gap: 16px; }
+  .frame-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .frame-title { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--amber); }
+  .btn-add-frame { padding: 10px 16px; border-radius: 8px; border: 1px dashed var(--border); background: transparent; color: var(--dim); font-size: 13px; font-weight: 600; cursor: pointer; width: 100%; transition: all 0.15s; display: flex; align-items: center; justify-content: center; gap: 6px; font-family: inherit; }
+  .btn-add-frame:hover { border-color: var(--orange); color: var(--orange); background: rgba(255,107,26,0.05); }
+  .btn-delete-frame { padding: 6px 12px; border-radius: 6px; border: 1px solid var(--red); background: transparent; color: var(--red); font-size: 11px; font-weight: 600; cursor: pointer; font-family: inherit; }
+  .btn-delete-frame:hover { background: rgba(239,68,68,0.1); }
   .msg-row.disabled .msg-name { color: var(--dim); }
   .msg-schedule { font-size: 11px; color: var(--dim); display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
   .sched-pill { display: inline-flex; align-items: center; gap: 3px; padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; }
@@ -459,26 +468,104 @@ function buildTemplatePicker(containerId, selectedLines, onSelect) {
   });
 }
 
-function buildFrameInputs(containerId, lineCount, existingLines) {
+// Store frames data for multi-page support
+var _frames = [];
+
+function buildFrameInputs(containerId, lineCount, existingLines, frameData) {
+  var el = document.getElementById(containerId);
+  
+  // Initialize frames if not provided
+  if (frameData) {
+    _frames = frameData;
+  } else if (!_frames.length) {
+    _frames = [{ lines: existingLines || [], lineCount: lineCount }];
+  }
+  
+  renderFrames(containerId);
+}
+
+function renderFrames(containerId) {
   var el = document.getElementById(containerId);
   el.innerHTML = '';
   
-  // Live preview editor like native UI
-  var preview = document.createElement('div');
-  preview.className = 'preview-editor';
+  var container = document.createElement('div');
+  container.className = 'frames-container';
   
-  for (var i = 0; i < lineCount; i++) {
-    var input = document.createElement('input');
-    input.type = 'text';
-    input.className = 'preview-input';
-    input.id = containerId + '-l' + i;
-    input.maxLength = 9;
-    input.placeholder = lineCount > 1 ? 'Line ' + (i+1) : 'Message text';
-    if (existingLines && existingLines[i]) input.value = existingLines[i];
-    preview.appendChild(input);
-  }
+  _frames.forEach(function(frame, fi) {
+    var frameBlock = document.createElement('div');
+    
+    // Frame header
+    var header = document.createElement('div');
+    header.className = 'frame-header';
+    var title = document.createElement('div');
+    title.className = 'frame-title';
+    title.textContent = 'Page ' + (fi + 1);
+    header.appendChild(title);
+    
+    if (_frames.length > 1) {
+      var delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'btn-delete-frame';
+      delBtn.textContent = 'Delete Page';
+      delBtn.onclick = function() { deleteFrame(containerId, fi); };
+      header.appendChild(delBtn);
+    }
+    
+    frameBlock.appendChild(header);
+    
+    // Line template picker for this frame
+    var tplDiv = document.createElement('div');
+    tplDiv.innerHTML = '<div class="template-grid" id="' + containerId + '-tpl-' + fi + '"></div>';
+    frameBlock.appendChild(tplDiv);
+    
+    // Live preview editor
+    var preview = document.createElement('div');
+    preview.className = 'preview-editor';
+    preview.style.marginTop = '10px';
+    
+    var lineCount = frame.lineCount || frame.lines.length || 1;
+    for (var i = 0; i < lineCount; i++) {
+      var input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'preview-input';
+      input.id = containerId + '-f' + fi + '-l' + i;
+      input.maxLength = 9;
+      input.placeholder = lineCount > 1 ? 'Line ' + (i+1) : 'Message text';
+      if (frame.lines && frame.lines[i]) input.value = frame.lines[i];
+      preview.appendChild(input);
+    }
+    
+    frameBlock.appendChild(preview);
+    container.appendChild(frameBlock);
+    
+    // Build template picker after appending to DOM
+    setTimeout(function() {
+      buildTemplatePicker(containerId + '-tpl-' + fi, lineCount, function(n) {
+        frame.lineCount = n;
+        renderFrames(containerId);
+      });
+    }, 0);
+  });
   
-  el.appendChild(preview);
+  // Add frame button
+  var addBtn = document.createElement('button');
+  addBtn.type = 'button';
+  addBtn.className = 'btn-add-frame';
+  addBtn.innerHTML = '<span>+</span> Add Page';
+  addBtn.onclick = function() { addFrame(containerId); };
+  container.appendChild(addBtn);
+  
+  el.appendChild(container);
+}
+
+function addFrame(containerId) {
+  _frames.push({ lines: [], lineCount: 1 });
+  renderFrames(containerId);
+}
+
+function deleteFrame(containerId, fi) {
+  _frames.splice(fi, 1);
+  renderFrames(containerId);
 }
 
 // ── Edit modal ────────────────────────────────────────────────────
@@ -581,20 +668,21 @@ async function doDelete() {
 function openNew() {
   _newLines = 1;
   _newDow   = 127;
+  _frames   = [{ lines: [], lineCount: 1 }];  // Reset to single frame
+  
   document.getElementById('new-name').value = '';
   document.getElementById('new-enabled').checked = true;
   document.getElementById('new-start').value = '00:00';
   document.getElementById('new-end').value   = '00:00';
 
   buildDayPicker('new-days', 127);
-  buildTemplatePicker('new-tpl-grid', 1, function(n) {
-    _newLines = n;
-    buildFrameInputs('new-frames', n, []);
-  });
   buildFrameInputs('new-frames', 1, []);
 
   open_('new-modal');
-  setTimeout(function(){ document.getElementById('new-name').focus(); }, 250);
+  setTimeout(function(){ 
+    var firstInput = document.querySelector('[id^="new-frames-f0-l"]');
+    if (firstInput) firstInput.focus();
+  }, 300);
 }
 
 async function doCreate() {
@@ -606,20 +694,30 @@ async function doCreate() {
 
   if (!name) { toast('Name required','err'); return; }
 
-  var lineTexts = [];
-  document.querySelectorAll('[id^="new-frames-l"]').forEach(function(el) { lineTexts.push(el.value.trim()); });
-  if (!lineTexts.some(function(t){ return t; })) { toast('Add some text','err'); return; }
+  // Collect all frames
+  var frames = [];
+  _frames.forEach(function(frame, fi) {
+    var lineTexts = [];
+    var lineCount = frame.lineCount || 1;
+    for (var i = 0; i < lineCount; i++) {
+      var el = document.getElementById('new-frames-f' + fi + '-l' + i);
+      if (el) lineTexts.push(el.value.trim());
+    }
+    if (lineTexts.some(function(t){ return t; })) {
+      frames.push({ lines: lineTexts });
+    }
+  });
+
+  if (!frames.length) { toast('Add some text','err'); return; }
 
   var btn = document.getElementById('create-btn');
   btn.disabled = true; btn.textContent = 'Creating…';
 
-  // Build lines array for create endpoint
-  var text = lineTexts[0] || '';
-  var extraLines = lineTexts.slice(1);
-
   var r = await api('/api/messages/create', {method:'POST', body:JSON.stringify({
-    name: name, text: text, extraLines: extraLines,
-    fontSize: 23, holdTime: 'P0Y0M0DT0H0M5S', enabled: enabled,
+    name: name,
+    frames: frames,  // Send frames array instead of text/extraLines
+    holdTime: 'P0Y0M0DT0H0M5S',
+    enabled: enabled,
     schedule: { Dow: dow, StartTime: startISO, EndTime: endISO,
                 IsAllDay: (startISO === 'PT0H0M0S' && endISO === 'PT0H0M0S') }
   })});
