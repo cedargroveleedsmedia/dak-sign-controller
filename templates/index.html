@@ -371,17 +371,24 @@ async function loadMessages() {
 
     var summary = schedSummary(sched);
 
-    // Build preview from first frame lines
+    // Build preview showing all frames with page count
     var previewHtml = '';
-    if (m.Frames && m.Frames[0] && m.Frames[0].Lines) {
-      var lines = m.Frames[0].Lines.filter(function(l){ return l.Text && l.Text.trim(); });
-      if (lines.length) {
-        previewHtml = '<div class="msg-preview">';
-        lines.forEach(function(line) {
-          previewHtml += '<div class="msg-preview-line">' + esc(line.Text) + '</div>';
-        });
-        previewHtml += '</div>';
+    if (m.Frames && m.Frames.length) {
+      var totalFrames = m.Frames.length;
+      previewHtml = '<div class="msg-preview">';
+      
+      // Show first frame's text
+      var firstLines = m.Frames[0].Lines.filter(function(l){ return l.Text && l.Text.trim(); });
+      firstLines.forEach(function(line) {
+        previewHtml += '<div class="msg-preview-line">' + esc(line.Text) + '</div>';
+      });
+      
+      // Show page indicator if multi-frame
+      if (totalFrames > 1) {
+        previewHtml += '<div style="margin-top:8px;font-size:9px;color:#888">Page 1 of ' + totalFrames + '</div>';
       }
+      
+      previewHtml += '</div>';
     }
 
     return '<div class="msg-row ' + rowCls + '" id="r'+i+'">' +
@@ -576,19 +583,19 @@ function openEdit(i) {
   var sched   = _cur.CurrentSchedule || {};
   var enabled = !!sched.Enabled;
   var frames  = _cur.Frames || [];
-  var firstFrame = frames[0] || {};
-  var lines   = (firstFrame.Lines || []).map(function(l){ return l.Text || ''; });
-  // Pre-select template by non-empty line count; blank trailing lines don't count
-  var nonEmpty  = lines.filter(function(t){ return t.trim() !== ''; }).length;
-  var lineCount = Math.max(nonEmpty || lines.length, 1);
+  
+  // Build frames array for editor
+  _frames = frames.map(function(f) {
+    var lines = (f.Lines || []).map(function(l){ return l.Text || ''; });
+    var nonEmpty = lines.filter(function(t){ return t.trim() !== ''; }).length;
+    var lineCount = Math.max(nonEmpty || lines.length, 1);
+    return { lines: lines, lineCount: lineCount };
+  });
 
   var h = '';
 
   // Name
   h += '<div class="field"><label>Name</label><input type="text" id="e-name" value="' + esc(_cur.Name) + '" autocomplete="off"></div>';
-
-  // Template picker placeholder - will be built via JS
-  h += '<div><div class="section-divider" style="margin-bottom:10px">Lines</div><div class="template-grid" id="e-tpl-grid"></div><div style="font-size:11px;color:var(--dim);margin-top:8px">Max 9 characters per line</div></div>';
 
   // Frame inputs placeholder
   h += '<div id="e-frames"></div>';
@@ -609,11 +616,7 @@ function openEdit(i) {
 
   // Build interactive pickers
   buildDayPicker('e-days', sched.Dow != null ? sched.Dow : 127);
-  buildTemplatePicker('e-tpl-grid', lineCount, function(n) {
-    buildFrameInputs('e-frames', n, lines);
-  });
-  // Show all stored lines initially (including blanks), not just nonEmpty count
-  buildFrameInputs('e-frames', lines.length || 1, lines);
+  buildFrameInputs('e-frames', 1, [], _frames);  // Pass _frames data
 
   open_('edit-modal');
 }
@@ -627,21 +630,20 @@ async function doSave() {
 
   if (!name) { toast('Name required','err'); return; }
 
-  // Collect line texts
-  var lineTexts = [];
-  document.querySelectorAll('[id^="e-frames-l"]').forEach(function(el) { lineTexts.push(el.value); });
+  // Collect all frames
+  var frames = [];
+  _frames.forEach(function(frame, fi) {
+    var lineTexts = [];
+    var lineCount = frame.lineCount || frame.lines.length || 1;
+    for (var i = 0; i < lineCount; i++) {
+      var el = document.getElementById('e-frames-f' + fi + '-l' + i);
+      if (el) lineTexts.push(el.value);
+    }
+    frames.push({ frameIndex: fi, lines: lineTexts });
+  });
 
   var btn = document.getElementById('save-btn');
   btn.disabled = true; btn.textContent = 'Saving…';
-
-  // Build frame edits using existing frame structure
-  var frames = (_cur.Frames || []).map(function(f, fi) {
-    return { frameIndex: fi, lines: (f.Lines || []).map(function(_, li) { return lineTexts[li] || ''; }) };
-  });
-  // If line count changed, adjust
-  if (lineTexts.length !== ((_cur.Frames[0]||{}).Lines||[]).length) {
-    frames = [{ frameIndex: 0, lines: lineTexts }];
-  }
 
   var r = await api('/api/messages/update', {method:'POST', body:JSON.stringify({
     name: _cur.Name, newName: name, frames: frames,
