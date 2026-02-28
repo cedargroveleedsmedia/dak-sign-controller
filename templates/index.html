@@ -66,6 +66,11 @@
   .msg-name { font-weight: 600; font-size: 15px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 3px; }
   .msg-preview { background: #000; border: 1px solid var(--border); border-radius: 4px; padding: 8px; margin-top: 8px; min-height: 60px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
   .msg-preview-line { color: #ff4444; font-family: Arial, sans-serif; font-weight: 700; font-size: 11px; line-height: 1.2; text-align: center; white-space: nowrap; }
+  
+  /* Live preview editor */
+  .preview-editor { background: #000; border: 1px solid var(--border); border-radius: 10px; padding: 20px; min-height: 180px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
+  .preview-input { background: transparent; border: none; color: #ff4444; font-family: Arial, sans-serif; font-weight: 700; font-size: 18px; text-align: center; outline: none; width: 100%; padding: 4px; caret-color: #ff4444; }
+  .preview-input::placeholder { color: rgba(255,68,68,0.3); }
   .msg-row.disabled .msg-name { color: var(--dim); }
   .msg-schedule { font-size: 11px; color: var(--dim); display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
   .sched-pill { display: inline-flex; align-items: center; gap: 3px; padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; }
@@ -457,28 +462,23 @@ function buildTemplatePicker(containerId, selectedLines, onSelect) {
 function buildFrameInputs(containerId, lineCount, existingLines) {
   var el = document.getElementById(containerId);
   el.innerHTML = '';
-  var block = document.createElement('div');
-  block.className = 'frame-block';
-  var label = document.createElement('div');
-  label.className = 'frame-label';
-  label.textContent = 'Frame 1 · Text';
-  block.appendChild(label);
+  
+  // Live preview editor like native UI
+  var preview = document.createElement('div');
+  preview.className = 'preview-editor';
+  
   for (var i = 0; i < lineCount; i++) {
-    var field = document.createElement('div');
-    field.className = 'field';
-    var lbl = document.createElement('label');
-    lbl.textContent = lineCount > 1 ? 'Line ' + (i+1) : 'Text';
-    var ta = document.createElement('textarea');
-    ta.id = containerId + '-l' + i;
-    ta.rows = 2;
-    ta.placeholder = lineCount > 1 ? 'Line ' + (i+1) + ' text…' : 'Message text…';
-    ta.maxLength = 9;
-    if (existingLines && existingLines[i]) ta.value = existingLines[i];
-    field.appendChild(lbl);
-    field.appendChild(ta);
-    block.appendChild(field);
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'preview-input';
+    input.id = containerId + '-l' + i;
+    input.maxLength = 9;
+    input.placeholder = lineCount > 1 ? 'Line ' + (i+1) : 'Message text';
+    if (existingLines && existingLines[i]) input.value = existingLines[i];
+    preview.appendChild(input);
   }
-  el.appendChild(block);
+  
+  el.appendChild(preview);
 }
 
 // ── Edit modal ────────────────────────────────────────────────────
