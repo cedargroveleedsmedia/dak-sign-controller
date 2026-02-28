@@ -206,6 +206,7 @@
       <div>
         <div class="section-divider" style="margin-bottom:10px">Lines</div>
         <div class="template-grid" id="new-tpl-grid"></div>
+        <div style="font-size:11px;color:var(--dim);margin-top:8px">Max 9 characters per line</div>
       </div>
 
       <div id="new-frames"></div>
@@ -455,6 +456,7 @@ function buildFrameInputs(containerId, lineCount, existingLines) {
     ta.id = containerId + '-l' + i;
     ta.rows = 2;
     ta.placeholder = lineCount > 1 ? 'Line ' + (i+1) + ' text…' : 'Message text…';
+    ta.maxLength = 9;
     if (existingLines && existingLines[i]) ta.value = existingLines[i];
     field.appendChild(lbl);
     field.appendChild(ta);
@@ -483,7 +485,7 @@ function openEdit(i) {
   h += '<div class="field"><label>Name</label><input type="text" id="e-name" value="' + esc(_cur.Name) + '" autocomplete="off"></div>';
 
   // Template picker placeholder - will be built via JS
-  h += '<div><div class="section-divider" style="margin-bottom:10px">Lines</div><div class="template-grid" id="e-tpl-grid"></div></div>';
+  h += '<div><div class="section-divider" style="margin-bottom:10px">Lines</div><div class="template-grid" id="e-tpl-grid"></div><div style="font-size:11px;color:var(--dim);margin-top:8px">Max 9 characters per line</div></div>';
 
   // Frame inputs placeholder
   h += '<div id="e-frames"></div>';
