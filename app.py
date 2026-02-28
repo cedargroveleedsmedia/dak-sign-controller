@@ -258,7 +258,7 @@ def api_create_message():
             "Enabled":   body.get("enabled", True),
             "StartTime": sched_in.get("StartTime", "PT0H0M0S"),
             "EndTime":   sched_in.get("EndTime",   "PT0H0M0S"),
-            "Dow":       sched_in.get("Dow", 127),
+            "Dow":       sched_in.get("Dow", 127) if body.get("enabled", True) else 0,
             "IsAllDay":  sched_in.get("IsAllDay", True),
         },
     }
