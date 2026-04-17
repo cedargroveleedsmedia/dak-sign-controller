@@ -420,6 +420,13 @@ async function doToggle(i, on) {
     var active = isActiveNow(m.CurrentSchedule);
     row.className = 'msg-row ' + (!on ? 'disabled' : active ? 'active-now' : 'enabled-waiting');
     var cb = row.querySelector('input'); if(cb) cb.checked = on;
+    // Re-render the schedule line so days stay visible when disabled
+    var pillHtml = !on ? '<span class="sched-pill off">Off</span>'
+                       : active ? '<span class="sched-pill on">● On now</span>'
+                                : '<span class="sched-pill wait">◐ Waiting</span>';
+    var summary = schedSummary(m.CurrentSchedule);
+    var schedEl = row.querySelector('.msg-schedule');
+    if (schedEl) schedEl.innerHTML = pillHtml + (summary ? '<span>' + esc(summary) + '</span>' : '');
     toast(m.Name + (on ? ' enabled' : ' disabled'), 'ok');
   } else {
     toast('Toggle failed', 'err');

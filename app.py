@@ -379,19 +379,9 @@ def api_toggle_message():
         if msg is None:
             return jsonify({"error": f"Message '{name}' not found"}), 404
         msg = copy.deepcopy(msg)
+        # Only flip Enabled — leave Dow untouched, exactly like the real dashboard does.
+        # Zeroing Dow caused the days to be lost; the sign uses Enabled to gate playback.
         msg["CurrentSchedule"]["Enabled"] = enabled
-        if enabled:
-            # Restore Dow from server-side store (sign strips unknown fields so we can't
-            # store PreviousDow on the sign itself)
-            saved_dow = dow_store_get(name)
-            msg["CurrentSchedule"]["Dow"] = saved_dow if saved_dow not in (None, 0) else 127
-            dow_store_clear(name)
-        else:
-            # Save current Dow to server-side store before zeroing it out
-            current_dow = msg["CurrentSchedule"].get("Dow", 127)
-            if current_dow != 0:
-                dow_store_save(name, current_dow)
-            msg["CurrentSchedule"]["Dow"] = 0
         delete_message_by_name(name)
         result, code = save_message_obj(msg)
         return jsonify({"result": result, "status": code, "enabled": enabled}), code
