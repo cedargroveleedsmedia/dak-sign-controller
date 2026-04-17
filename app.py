@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import json
 import copy
 import threading
+import os
 
 app = Flask(__name__)
 
@@ -17,6 +18,43 @@ SIGN_IP  = "192.168.48.6"
 USERNAME = "Dak"
 PASSWORD = "DakPassword"
 BASE_URL = f"http://{SIGN_IP}"
+
+# --- Dow store ---
+# The sign hardware strips unknown fields, so we can't store PreviousDow on the sign.
+# Instead we keep a server-side JSON file mapping message name -> saved Dow value.
+_DOW_STORE_PATH = os.path.join(os.path.dirname(__file__), "dow_store.json")
+_dow_store_lock = threading.Lock()
+
+def _load_dow_store():
+    try:
+        with open(_DOW_STORE_PATH, "r") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _save_dow_store(store):
+    with open(_DOW_STORE_PATH, "w") as f:
+        json.dump(store, f)
+
+def dow_store_save(name, dow):
+    """Save the active Dow for a message (call before disabling)."""
+    with _dow_store_lock:
+        store = _load_dow_store()
+        store[name] = dow
+        _save_dow_store(store)
+
+def dow_store_get(name):
+    """Retrieve the saved Dow for a message, or None if not stored."""
+    with _dow_store_lock:
+        return _load_dow_store().get(name)
+
+def dow_store_clear(name):
+    """Remove stored Dow for a message (call after re-enabling)."""
+    with _dow_store_lock:
+        store = _load_dow_store()
+        store.pop(name, None)
+        _save_dow_store(store)
+
 
 # --- Session management ---
 # We keep a persistent requests.Session so cookies are maintained between calls.
@@ -343,16 +381,16 @@ def api_toggle_message():
         msg = copy.deepcopy(msg)
         msg["CurrentSchedule"]["Enabled"] = enabled
         if enabled:
-            # Restore the previously saved Dow, or fall back to all days (127)
-            previous_dow = msg["CurrentSchedule"].get("PreviousDow")
-            msg["CurrentSchedule"]["Dow"] = previous_dow if previous_dow not in (None, 0) else 127
-            # Clear the stored value now that we've restored it
-            msg["CurrentSchedule"].pop("PreviousDow", None)
+            # Restore Dow from server-side store (sign strips unknown fields so we can't
+            # store PreviousDow on the sign itself)
+            saved_dow = dow_store_get(name)
+            msg["CurrentSchedule"]["Dow"] = saved_dow if saved_dow not in (None, 0) else 127
+            dow_store_clear(name)
         else:
-            # Save the current Dow so it can be restored on re-enable
+            # Save current Dow to server-side store before zeroing it out
             current_dow = msg["CurrentSchedule"].get("Dow", 127)
             if current_dow != 0:
-                msg["CurrentSchedule"]["PreviousDow"] = current_dow
+                dow_store_save(name, current_dow)
             msg["CurrentSchedule"]["Dow"] = 0
         delete_message_by_name(name)
         result, code = save_message_obj(msg)
